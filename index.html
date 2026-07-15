@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>機場自助化設備建置儀表板</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:system-ui,'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif;background:#EEF0F1;color:#141819}
+  a{color:#00853C;text-decoration:none}
+  a:hover{color:#005726}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#C7CDCF;border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  @keyframes sheetIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
+  @keyframes scrimIn{from{opacity:0}to{opacity:1}}
+  input:focus,select:focus,textarea:focus{outline:2px solid #00853C;outline-offset:1px}
+  button{font-family:inherit}
+  .chip{transition:transform .12s ease}
+  .chip:hover{transform:translateY(-2px)}
+  #tip{position:fixed;z-index:60;max-width:320px;background:#141819;color:#EAF0EC;border-radius:10px;
+       padding:11px 13px;font-size:11.5px;line-height:1.5;box-shadow:0 8px 26px rgba(0,0,0,.28);
+       pointer-events:none;opacity:0;transition:opacity .12s ease;display:none}
+  .fld{border:1px solid #DFE3E4;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;width:100%}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="tip"></div>
+<datalist id="vendorList">
+  <option value="1A"></option><option value="SITA"></option><option value="ARINC"></option>
+  <option value="IER"></option><option value="TravelSKY"></option><option value="Objective"></option>
+  <option value="Elenium"></option><option value="Daifuku"></option><option value="Scarabee"></option>
+  <option value="KASIS"></option><option value="SKY ICT"></option>
+</datalist>
+
+<script>
+(function(){
+  "use strict";
+
+  var KEY = 'eva_cuss_dashboard_v2';
+  var PHASES = ['2025前','2026/Q1','2026/Q2','2026/Q3','2026/Q4','暫定2027','未排程'];
+  var REGION_ORDER = ['美洲','歐洲','東南亞','東北亞','大陸','港澳','台灣區','紐澳'];
+  var STATUS = {
+    online:     {label:'已上線',    color:'#00853C', textOn:'#FFFFFF', mark:'●'},
+    paused:     {label:'已上線暫關', color:'#7FA893', textOn:'#141819', mark:'○'},
+    building:   {label:'建置進行中', color:'#E8A400', textOn:'#FFFFFF', mark:'▲'},
+    evaluating: {label:'評估中',    color:'#C2AC7E', textOn:'#141819', mark:'△'},
+    none:       {label:'無設備',    color:'#DCDBD6', textOn:'#141819', mark:'✕'}
+  };
+  var ORDER = ['online','paused','building','evaluating','none'];
+  var VENDORS = ['1A','SITA','ARINC','IER','TravelSKY','Objective','Elenium','Daifuku','Scarabee','KASIS','SKY ICT'];
+
+  var nid = 1;
+
+  function seed(){
+    var DATA = [
+      {code:'FUK',region:'東北亞',phase:'2025前',kpi:false,cuss:'online',sbd:'online',sbg:'none',cussVendor:'1A',sbdVendor:'1A',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD均已啟用',schedNote:''},
+      {code:'HND',region:'東北亞',phase:'2025前',kpi:false,cuss:'online',sbd:'evaluating',sbg:'evaluating',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'2020/7重啟',sbdDate:'未開放使用',note:'CUSS已啟用\nSBD機場公司目前僅提供JL/NH使用，場站正積極爭取中\nSBG臉部辨識註冊機台現僅設置JL/NH櫃台前且周邊無機場人員協助引導，場站評估中',schedNote:'CUSS 2022/11開啟列印行李條功能\nSBD待機場公司通知建置時程'},
+      {code:'NRT',region:'東北亞',phase:'2025前',kpi:true,cuss:'online',sbd:'building',sbg:'evaluating',cussVendor:'ARINC',sbdVendor:'1A',sbgVendor:'',cussDate:'2025/11重啟',sbdDate:'進行中',note:'CUSS已啟用\nSBD機場公司表示BR預計2026/Q3建置完成\nSBG目前僅NH使用的登機門有導入設備',schedNote:'CUSS 2025/11開啟列印行李條功能\nSBD建置時程機場公司安排於2026/Q3'},
+      {code:'BKK',region:'東南亞',phase:'2025前',kpi:false,cuss:'online',sbd:'online',sbg:'online',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'SITA',cussDate:'',sbdDate:'',note:'CUSS/SBD/SBG均已啟用',schedNote:''},
+      {code:'SIN',region:'東南亞',phase:'2025前',kpi:false,cuss:'online',sbd:'online',sbg:'building',cussVendor:'SITA',sbdVendor:'1A',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD均已啟用',schedNote:''},
+      {code:'CDG',region:'歐洲',phase:'2025前',kpi:false,cuss:'online',sbd:'building',sbg:'none',cussVendor:'IER',sbdVendor:'1A',sbgVendor:'',cussDate:'2024/3啟用',sbdDate:'進行中',note:'CUSS已啟用\nSBD系統商為1A但線路採SITA專線運作，於2月底提交線路申請單，目前請場站向機場公司協調建置時程',schedNote:'SBD場站與機場公司協調建置時程'},
+      {code:'LHR',region:'歐洲',phase:'2025前',kpi:false,cuss:'online',sbd:'online',sbg:'none',cussVendor:'1A',sbdVendor:'1A',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD均已啟用',schedNote:''},
+      {code:'HKG',region:'港澳',phase:'2025前',kpi:false,cuss:'online',sbd:'online',sbg:'online',cussVendor:'1A',sbdVendor:'ARINC',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD/SBG均已啟用',schedNote:''},
+      {code:'BNE',region:'紐澳',phase:'2025前',kpi:true,cuss:'online',sbd:'online',sbg:'none',cussVendor:'1A',sbdVendor:'1A',sbgVendor:'',cussDate:'2025/12啟用',sbdDate:'',note:'CUSS/SBD均已啟用',schedNote:'CUSS/SBD均已啟用'},
+      {code:'LAX',region:'美洲',phase:'2025前',kpi:true,cuss:'online',sbd:'building',sbg:'online',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'2022/7重啟',sbdDate:'進行中',note:'CUSS已啟用\nSBD系統商正處開發階段，場站已協助跟追進度',schedNote:'CUSS 2025/7開啟列印行李條功能\nSBD需視系統商開發進度調整時程'},
+      {code:'SEA',region:'美洲',phase:'2025前',kpi:false,cuss:'online',sbd:'none',sbg:'online',cussVendor:'ARINC',sbdVendor:'',sbgVendor:'',cussDate:'2020/7重啟',sbdDate:'無',note:'CUSS已啟用但無開啟行李條列印功能\nSBD機場公司於國際線無建置規劃\nSBG 2-step',schedNote:'CUSS無開啟列印行李條功能'},
+      {code:'KUL',region:'東南亞',phase:'2026/Q1',kpi:true,cuss:'online',sbd:'building',sbg:'none',cussVendor:'1A',sbdVendor:'1A',sbgVendor:'',cussDate:'2026/1/15啟用',sbdDate:'待啟用',note:'CUSS已啟用(2026/1/15)\nSBD進行測試中(預計2026/Q2啟用)',schedNote:'SBD已完成建置，待場站安排啟用時程'},
+      {code:'IAH',region:'美洲',phase:'2026/Q1',kpi:true,cuss:'online',sbd:'online',sbg:'online',cussVendor:'1A',sbdVendor:'1A',sbgVendor:'',cussDate:'2026/3/12啟用',sbdDate:'',note:'CUSS/SBD均已啟用(2026/3/12)',schedNote:'CUSS/SBD均已啟用'},
+      {code:'TSA',region:'台灣區',phase:'2026/Q2',kpi:false,cuss:'online',sbd:'building',sbg:'building',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'2024/5重啟',sbdDate:'進行中',note:'CUSS已啟用但無開啟行李條列印功能\nSBD進行測試中，預計2026/Q2啟用',schedNote:'CUSS配合SBD啟用時程開啟列印行李條功能\nSBD測試進行中'},
+      {code:'KIX',region:'東北亞',phase:'2026/Q2',kpi:true,cuss:'building',sbd:'building',sbg:'none',cussVendor:'SITA',sbdVendor:'1A',sbgVendor:'',cussDate:'2026/7/6啟用',sbdDate:'',note:'CUSS/SBD進行測試中，預計2025/5啟用',schedNote:'CUSS/SBD均已啟用'},
+      {code:'MUC',region:'歐洲',phase:'2026/Q2',kpi:true,cuss:'online',sbd:'online',sbg:'none',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'2026/4/16啟用',sbdDate:'',note:'CUSS/SBD均已啟用(2026/4/16)',schedNote:'CUSS/SBD均已啟用'},
+      {code:'VIE',region:'歐洲',phase:'2026/Q2',kpi:true,cuss:'online',sbd:'building',sbg:'none',cussVendor:'Objective',sbdVendor:'Objective',sbgVendor:'',cussDate:'2026/4/7啟用',sbdDate:'2026/5/18啟用',note:'CUSS已啟用(2026/4/7)\nSBD進行測試中(預計2026/5啟用)',schedNote:'CUSS/SBD均已啟用'},
+      {code:'DAD',region:'東南亞',phase:'2026/Q3',kpi:true,cuss:'building',sbd:'building',sbg:'evaluating',cussVendor:'Elenium',sbdVendor:'Elenium',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'CUSS平台認證中\nSBD建置進行中\nSBG未配置人臉辨識，僅有自助掃描登機系統',schedNote:'CUSS平台認證完成，待載入BR應用程式後，進行測試作業\nSBD建置進行中'},
+      {code:'KTI',region:'東南亞',phase:'2026/Q3',kpi:false,cuss:'building',sbd:'building',sbg:'none',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'CUSS/SBD線路申請中(2026/4/1提單)',schedNote:'CUSS/SBD線路建置中'},
+      {code:'AMS',region:'歐洲',phase:'2026/Q3',kpi:true,cuss:'online',sbd:'building',sbg:'none',cussVendor:'SITA',sbdVendor:'Scarabee',sbgVendor:'',cussDate:'2025/10重啟',sbdDate:'進行中',note:'CUSS已啟用但無開啟行李條列印功能(非所有機台都具行李條列印功能)\nSBD機場優先採行1-step作業模式，但高端旅客情境經測試後，與本家需求存在落差待解決中',schedNote:'CUSS無開啟列印行李條功能(待場站規劃)\nSBD將採1-step與2-step作業模式並行，目前系統商正進行相關功能開發。'},
+      {code:'YYZ',region:'美洲',phase:'2026/Q3',kpi:false,cuss:'online',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'2020/7重啟',sbdDate:'未開放使用',note:'CUSS已啟用但無開啟行李條列印功能\nSBD現僅AC使用，場站正持續跟追機場公司並爭取使用',schedNote:'CUSS規劃開啟列印行李條功能\nSBD機場公司僅開放AC使用'},
+      {code:'PEK',region:'大陸',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'building',sbg:'none',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'CUSS/SBD線路申請中(2026/1/26提單)',schedNote:'CUSS線路建置中\nSBD進行測試中'},
+      {code:'PVG',region:'大陸',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'building',sbg:'none',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'CUSS/SBD線路申請中(2026/4/1提單)',schedNote:'CUSS/SBD線路建置中'},
+      {code:'CTS',region:'東北亞',phase:'2026/Q4',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'SITA',sbdVendor:'',sbgVendor:'',cussDate:'規劃中',sbdDate:'無',note:'CUSS場站規劃中\nSBD機場無建置',schedNote:'場站規劃中'},
+      {code:'ICN',region:'東北亞',phase:'2026/Q4',kpi:false,cuss:'paused',sbd:'building',sbg:'evaluating',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'待重啟',sbdDate:'進行中',note:'CUSS待重啟，預計與SBD2026/Q4同步啟用\nSBD廠商預估建置時程半年，初步評估2026/Q4啟用\nSBG機場公司僅開放KE使用',schedNote:'CUSS待重啟，預計與SBD 2026/Q4同步啟用\nSBD建置進行中，預計2026/Q4啟用'},
+      {code:'DPS',region:'東南亞',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'none',sbg:'none',cussVendor:'SITA',sbdVendor:'',sbgVendor:'',cussDate:'進行中',sbdDate:'無',note:'CUSS場站規劃中\nSBD機場無建置',schedNote:'CUSS線路建置中'},
+      {code:'HAN',region:'東南亞',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'building',sbg:'none',cussVendor:'Daifuku',sbdVendor:'Daifuku',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'CUSS平台待認證中\nSBD建置進行中',schedNote:'CUSS平台認證中\nSBD預計2026/Q3開始進行建置'},
+      {code:'JFK',region:'美洲',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'building',sbg:'online',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'進行中',sbdDate:'進行中',note:'機場公司NTO案預計2026年10月完成\nCUSS/SBD硬體設備已就位，預計2026年4月~5月進行測試作業',schedNote:'CUSS/SBD配合機場公司NTO搬遷規劃，預計2027/Q1啟用'},
+      {code:'SFO',region:'美洲',phase:'2026/Q4',kpi:false,cuss:'building',sbd:'none',sbg:'online',cussVendor:'IER',sbdVendor:'',sbgVendor:'',cussDate:'進行中',sbdDate:'無',note:'CUSS平台認證已完成，待安裝測試作業(等候IER測試報價中)\nSBD機場無建置',schedNote:'CUSS平台認證完成，待載入BR應用程式後，進行測試作業'},
+      {code:'KHH',region:'台灣區',phase:'暫定2027',kpi:false,cuss:'paused',sbd:'none',sbg:'none',cussVendor:'SITA',sbdVendor:'',sbgVendor:'',cussDate:'待重啟',sbdDate:'無',note:'CUSS重啟由場站評估中\nSBD機場無建置',schedNote:'場站評估中'},
+      {code:'TPE',region:'台灣區',phase:'暫定2027',kpi:false,cuss:'paused',sbd:'online',sbg:'building',cussVendor:'SITA',sbdVendor:'Scarabee/SITA',sbgVendor:'',cussDate:'待重啟',sbdDate:'已啟用',note:'CUSS場站規劃待T2 SBD轉換為2-step後再評估重啟使用。\nSBG預計將規劃於TPE T3使用。',schedNote:'場站評估中'},
+      {code:'CAN',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'TravelSKY',sbdVendor:'TravelSKY',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'自動化設備建置事宜已請場站與中航信討論並評估',schedNote:'CUSS系統商中航信'},
+      {code:'HGH',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'TravelSKY',sbdVendor:'TravelSKY',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'自動化設備建置事宜已請場站與中航信討論並評估\nSBG國際航線無建置',schedNote:'CUSS系統商中航信'},
+      {code:'SHA',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'SITA',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS場站評估中，目前僅MU有專屬6座CUSS機台，BR可共用並每月支付使用費(暫無其他航司共用)\nSBD/SBG機場無建置',schedNote:'場站評估中'},
+      {code:'SZX',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'evaluating',cussVendor:'TravelSKY',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS待資訊本部評估中航信系統介接狀況\nSBD機場無建置',schedNote:'CUSS系統商中航信'},
+      {code:'TFU',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'evaluating',cussVendor:'TravelSKY',sbdVendor:'TravelSKY',sbgVendor:'TravelSKY',cussDate:'評估中',sbdDate:'評估中',note:'預計2026年6月搬遷回CTU機場尚未啟用設備',schedNote:'CUSS系統商中航信'},
+      {code:'XMN',region:'大陸',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'TravelSKY',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS現行僅開放CX使用，2026/12機場搬遷後將開放各航司使用\nSBD機場無建置',schedNote:'CUSS系統商中航信'},
+      {code:'GMP',region:'東北亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS無支援列印行李條功能，僅4台設備並鄰近BR櫃台，場站評估中\nSBD為1 step且限硬殼行李箱適用，目前僅KE/OZ使用，與機場公司協調中',schedNote:'CUSS機台無支援列印行李條功能/SBD 1- Step'},
+      {code:'OKA',region:'東北亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'ARINC',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS無支援列印行李條功能，場站評估中\nSBD機場無建置，2025/12機場公司有調研航司使用SBD意願',schedNote:'CUSS機台無支援列印行李條功能'},
+      {code:'PUS',region:'東北亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'KASIS',sbdVendor:'KASIS',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS無支援列印行李條功能，場站評估中\nSBD僅2台，機場公司與KE合作測試中，場站評估中',schedNote:'CUSS機台無支援列印行李條功能'},
+      {code:'UKB',region:'東北亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS機場配置6台\nSBD僅2台且建置成本高，暫無其他航司使用，場站評估中',schedNote:'SBD僅2台'},
+      {code:'CGK',region:'東南亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'SITA',sbdVendor:'SITA',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS設備機場公司預計2026/Q2完成每個島櫃裝設，場站評估中\nSBD僅SQ島櫃前可使用，其餘島櫃機台尚無未開放，官方預計於2026年底前完成啟用',schedNote:'SBD僅2台'},
+      {code:'CNX',region:'東南亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'SKY ICT',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS場站評估中\nSBD機場無建置',schedNote:'場站評估中'},
+      {code:'CRK',region:'東南亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'Daifuku',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS/SBD建置場站正規劃中',schedNote:'SBD僅2台'},
+      {code:'MNL',region:'東南亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'evaluating',cussVendor:'ARINC',sbdVendor:'Daifuku',sbgVendor:'',cussDate:'規劃中',sbdDate:'規劃中',note:'規劃2027/Q1航廈搬遷至T3 (最遲2027/6)\nCUSS/SBD廠商目前無法達成成本共識，後續將由機場公司主導統整建置成本，故相關資訊待確認\nSBG尚未啟用人臉辨識系統，僅提供登機證掃描用',schedNote:'配合機場公司搬遷規劃安排，預計2027/Q1啟用'},
+      {code:'SGN',region:'東南亞',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS/SBD設備機場公司未開放航司使用且目前無更新計畫',schedNote:'CUSS/SBD設備待更新，機場公司尚無開放使用'},
+      {code:'MFM',region:'港澳',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'none',cussVendor:'TravelSKY',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'無',note:'CUSS未取得中航信平台認證且無支援行李條列印，故暫無建置規劃\nSBD機場公司預計2026年底導入設備',schedNote:'CUSS系統商中航信'},
+      {code:'DFW',region:'美洲',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'none',sbg:'evaluating',cussVendor:'ARINC',sbdVendor:'',sbgVendor:'',cussDate:'評估中',sbdDate:'評估中',note:'CUSS待場站評估啟用(預計2026年5月再新增機台)\nSBD硬體設備預計2026年5月到位\nSBG 2-step',schedNote:'CUSS/SBD機台將於2026/5就位'},
+      {code:'YVR',region:'美洲',phase:'暫定2027',kpi:false,cuss:'evaluating',sbd:'evaluating',sbg:'none',cussVendor:'ARINC',sbdVendor:'ARINC',sbgVendor:'',cussDate:'評估中',sbdDate:'未開放使用',note:'CUSS待場站評估啟用\n(他航司分享常發生旅客誤將行李放置大件行李滾帶區運輸，因該區無人工判斷常導致行李無ACTIVATE)\nSBD現僅AC使用，場站正持續跟追機場公司並爭取使用\nSBG目前僅國內線裝設人臉辨識系統',schedNote:'SBD機場公司僅開放AC使用'},
+      {code:'AOJ',region:'東北亞',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'KMQ',region:'東北亞',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'MYJ',region:'東北亞',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'SDJ',region:'東北亞',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'CEB',region:'東南亞',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'MXP',region:'歐洲',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'none',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置\nSBD機場有規劃導入設備但尚未有明確時程',schedNote:''},
+      {code:'IAD',region:'美洲',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'building',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置',schedNote:''},
+      {code:'ORD',region:'美洲',phase:'未排程',kpi:false,cuss:'none',sbd:'none',sbg:'online',cussVendor:'',sbdVendor:'',sbgVendor:'',cussDate:'',sbdDate:'',note:'CUSS/SBD機場無建置\nSBG 2-step',schedNote:''}
+    ];
+    return DATA.map(function(r){
+      var o = {}; for(var k in r) o[k]=r[k]; o.id = nid++; return o;
+    });
+  }
+
+  var FIELDS = ['code','region','phase','kpi','cuss','sbd','sbg','cussVendor','sbdVendor','sbgVendor','cussDate','sbdDate','note','schedNote'];
+  function normalize(s){
+    var o = {id:s.id};
+    FIELDS.forEach(function(f){ o[f] = s[f]!=null ? s[f] : (f==='kpi'?false:''); });
+    if(!STATUS[o.cuss]) o.cuss='none';
+    if(!STATUS[o.sbd]) o.sbd='none';
+    if(!STATUS[o.sbg]) o.sbg='none';
+    return o;
+  }
+
+  function load(){
+    try{
+      var raw = localStorage.getItem(KEY);
+      if(raw){
+        var arr = JSON.parse(raw);
+        if(Array.isArray(arr) && arr.length){
+          nid = Math.max.apply(null, arr.map(function(s){ return s.id||0; })) + 1;
+          return arr.map(normalize);
+        }
+      }
+    }catch(e){}
+    return seed();
+  }
+  function save(stations){ try{ localStorage.setItem(KEY, JSON.stringify(stations)); }catch(e){} }
+
+  var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase' };
+
+  // ---- mutations ----
+  function update(stations){ save(stations); state.stations = stations; render(); }
+  function setField(id, field, val){
+    update(state.stations.map(function(s){
+      if(s.id===id){ var n = {}; for(var k in s) n[k]=s[k]; n[field]=val; return n; }
+      return s;
+    }));
+  }
+  function cycle(id, field){
+    var s = find(id); if(!s) return;
+    var i = ORDER.indexOf(s[field]);
+    setField(id, field, ORDER[(i+1)%ORDER.length]);
+  }
+  function find(id){ for(var i=0;i<state.stations.length;i++) if(state.stations[i].id===id) return state.stations[i]; return null; }
+  function select(id){ state.selectedId = id; render(); }
+  function closePanel(){ state.selectedId = null; render(); }
+  function toggleQuick(){ state.quickMode = !state.quickMode; render(); }
+  function setGroupMode(m){ state.groupMode = m; render(); }
+
+  function addStation(){
+    var sel = find(state.selectedId);
+    var st = normalize({ id:nid++, code:'新站', region:(sel?sel.region:''), phase:(sel?sel.phase:PHASES[0]) });
+    var stations = state.stations.concat([st]);
+    save(stations); state.stations = stations; state.selectedId = st.id; render();
+  }
+  function deleteStation(id){
+    var stations = state.stations.filter(function(s){ return s.id!==id; });
+    save(stations); state.stations = stations; state.selectedId = null; render();
+  }
+  function resetData(){
+    if(!window.confirm('確定要還原為原始資料庫嗎？目前的編輯將會清除。')) return;
+    nid = 1;
+    var stations = seed();
+    save(stations); state.stations = stations; state.selectedId = null; render();
+  }
+
+  // ---- export ----
+  function download(name, blob){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+  function exportJSON(){
+    var out = state.stations.map(function(s){ var o={}; FIELDS.forEach(function(f){ o[f]=s[f]; }); return o; });
+    download('自助化設備狀態.json', new Blob([JSON.stringify(out, null, 2)], {type:'application/json'}));
+  }
+  function exportCSV(){
+    var head = ['場站','區域','建置時程','CUSS','CUSS系統商','CUSS時程','SBD','SBD系統商','SBD時程','SBG','SBG系統商','KPI','各站進度','排程備註'];
+    var L = STATUS;
+    var esc = function(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; };
+    var rows = state.stations.map(function(s){
+      return [s.code, s.region, s.phase, L[s.cuss].label, s.cussVendor, s.cussDate,
+              L[s.sbd].label, s.sbdVendor, s.sbdDate, L[s.sbg].label, s.sbgVendor,
+              s.kpi?'是':'', s.note, s.schedNote].map(esc).join(',');
+    });
+    var csv = '﻿' + [head.map(esc).join(','), rows.join('\r\n')].join('\r\n');
+    download('自助化設備狀態.csv', new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  }
+  var _h2c = null;
+  function loadH2C(){
+    if(window.html2canvas) return Promise.resolve(window.html2canvas);
+    if(_h2c) return _h2c;
+    _h2c = new Promise(function(res, rej){
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload = function(){ res(window.html2canvas); };
+      s.onerror = function(){ rej(new Error('load failed')); };
+      document.head.appendChild(s);
+    });
+    return _h2c;
+  }
+  function exportPNG(){
+    var el = document.getElementById('cuss-board');
+    if(!el) return;
+    loadH2C().then(function(h2c){
+      return h2c(el, { scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false }).then(function(canvas){
+        canvas.toBlob(function(b){ if(b) download('自助化設備儀表板.png', b); });
+      });
+    }).catch(function(){
+      window.alert('圖片匯出失敗（可能無法連線載入匯出元件），請改用匯出 JSON／CSV 功能。');
+    });
+  }
+
+  // ---- derive coverage ----
+  function countBy(f){
+    var c = {online:0,paused:0,building:0,evaluating:0,none:0};
+    state.stations.forEach(function(s){ if(c[s[f]]!=null) c[s[f]]++; });
+    return c;
+  }
+  function stage(n, code, desc, f){
+    var total = state.stations.length || 1;
+    var c = countBy(f);
+    var pct = Math.round((c.online/total)*100);
+    var segs = ORDER.filter(function(k){ return c[k]>0; }).map(function(k){
+      var w = (c[k]/total)*100;
+      return { w:+w.toFixed(2), color:STATUS[k].color, textOn:STATUS[k].textOn, label: w>=6 ? String(c[k]) : '' };
+    });
+    var legend = ORDER.map(function(k){ return { color:STATUS[k].color, mark:STATUS[k].mark, text:c[k], label:STATUS[k].label }; });
+    return { n:n, code:code, desc:desc, pctLabel: pct+'%', online:c.online, segs:segs, legend:legend };
+  }
+
+  var phaseDot = {
+    '2025前':STATUS.online.color, '2026/Q1':STATUS.online.color, '2026/Q2':STATUS.online.color,
+    '2026/Q3':STATUS.building.color, '2026/Q4':STATUS.building.color, '暫定2027':STATUS.evaluating.color,
+    '未排程':STATUS.none.color
+  };
+
+  // ---- html helpers ----
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function stageHTML(st){
+    var segs = st.segs.map(function(sg){
+      return '<div style="width:'+sg.w+'%;background:'+sg.color+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:'+sg.textOn+'">'+esc(sg.label)+'</div>';
+    }).join('');
+    var legend = st.legend.map(function(lg){
+      return '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:'+lg.color+';display:inline-block"></span>'+lg.mark+' '+esc(lg.text)+' '+esc(lg.label)+'</div>';
+    }).join('');
+    return '<div style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6">'
+      + '<div style="display:flex;align-items:flex-start;gap:12px">'
+      +   '<div style="flex:none;width:30px;height:30px;border-radius:50%;background:#00853C;color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center">'+st.n+'</div>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-size:19px;font-weight:900;color:#00853C;letter-spacing:1px">'+esc(st.code)+'</div>'
+      +     '<div style="font-size:11px;color:#6E787B;margin-top:1px">'+esc(st.desc)+'</div>'
+      +   '</div>'
+      +   '<div style="text-align:right">'
+      +     '<div style="font-size:34px;font-weight:900;color:#00853C;line-height:1">'+st.pctLabel+'</div>'
+      +     '<div style="font-size:10px;color:#6E787B">已上線 '+st.online+' 站</div>'
+      +   '</div>'
+      + '</div>'
+      + '<div style="display:flex;height:20px;border-radius:10px;overflow:hidden;margin-top:14px;border:1px solid #DDE4E0">'+segs+'</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">'+legend+'</div>'
+      + '</div>';
+  }
+
+  function vendorTag(v){
+    return v ? '<span style="position:absolute;bottom:14px;right:4px;font-size:8px;font-weight:700;color:'+ 'rgba(255,255,255,.9)' +';letter-spacing:.3px">'+esc(v)+'</span>' : '';
+  }
+
+  function chipHTML(s){
+    var kpiDot = s.kpi ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>' : '';
+    var ring = s.id===state.selectedId ? '#00853C' : '#FFFFFF';
+    var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85">'+esc(s.cussVendor)+'</span>' : '';
+    return '<div class="chip" data-tip="'+s.id+'" style="position:relative;width:78px;height:48px;border-radius:7px;overflow:hidden;border:1.5px solid '+ring+';cursor:pointer;box-shadow:0 1px 2px rgba(20,40,30,.14)">'
+      + '<div data-action="chipTop" data-id="'+s.id+'" style="height:35px;background:'+STATUS[s.cuss].color+';display:flex;align-items:center;justify-content:center;color:'+STATUS[s.cuss].textOn+';font-family:system-ui,sans-serif;font-weight:700;font-size:15px;letter-spacing:.5px;line-height:1">'+esc(s.code)+'</div>'
+      + vt
+      + '<div data-action="chipBot" data-id="'+s.id+'" style="height:13px;background:'+STATUS[s.sbd].color+'"></div>'
+      + kpiDot
+      + '</div>';
+  }
+
+  function groupList(){
+    if(state.groupMode==='region'){
+      var regs = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
+      state.stations.forEach(function(s){ if(s.region && regs.indexOf(s.region)<0) regs.push(s.region); });
+      // stations with empty region
+      if(state.stations.some(function(s){ return !s.region; })) regs.push('');
+      return regs.map(function(r){
+        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }) };
+      });
+    }
+    return PHASES.map(function(p){
+      return { name:p, dot:phaseDot[p]||STATUS.evaluating.color, items: state.stations.filter(function(s){ return s.phase===p; }) };
+    });
+  }
+  function groupHTML(g){
+    return '<div style="display:flex;gap:16px;padding:12px 0;border-bottom:1px dashed #E4EBE6">'
+      + '<div style="flex:none;width:96px;display:flex;flex-direction:column;gap:2px;padding-top:2px">'
+      +   '<div style="display:flex;align-items:center;gap:7px">'
+      +     '<span style="width:12px;height:12px;border-radius:50%;background:'+g.dot+';box-shadow:0 0 0 3px rgba(0,77,51,.12)"></span>'
+      +     '<span style="font-size:13px;font-weight:700;color:#141819">'+esc(g.name)+'</span>'
+      +   '</div>'
+      +   '<div style="font-size:11px;color:#6E787B;padding-left:19px">'+g.items.length+' 站</div>'
+      + '</div>'
+      + '<div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:9px">'+g.items.map(chipHTML).join('')+'</div>'
+      + '</div>';
+  }
+
+  function statusRow(sel, field, title){
+    var chips = ORDER.map(function(k){
+      var active = sel[field]===k;
+      var bg = active ? STATUS[k].color : '#FFFFFF';
+      var fg = active ? STATUS[k].textOn : '#515A5D';
+      var bord = active ? STATUS[k].color : '#DFE3E4';
+      return '<button data-action="setField" data-id="'+sel.id+'" data-field="'+field+'" data-val="'+k+'" style="display:flex;align-items:center;gap:5px;border:1.5px solid '+bord+';background:'+bg+';color:'+fg+';border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer"><span style="width:9px;height:9px;border-radius:2px;background:'+STATUS[k].color+'"></span>'+STATUS[k].label+'</button>';
+    }).join('');
+    var vField = field+'Vendor';
+    var vendorInput = '<label style="flex:1;display:flex;flex-direction:column;gap:4px"><span style="font-size:10.5px;color:#8A938F">系統商</span><input list="vendorList" data-input="'+vField+'" data-id="'+sel.id+'" value="'+esc(sel[vField]||'')+'" placeholder="—" class="fld" style="padding:6px 9px;font-size:12px" /></label>';
+    var dateInput = '';
+    if(field==='cuss' || field==='sbd'){
+      var dField = field+'Date';
+      dateInput = '<label style="flex:1;display:flex;flex-direction:column;gap:4px"><span style="font-size:10.5px;color:#8A938F">啟用／時程</span><input data-input="'+dField+'" data-id="'+sel.id+'" value="'+esc(sel[dField]||'')+'" placeholder="—" class="fld" style="padding:6px 9px;font-size:12px" /></label>';
+    }
+    return '<div style="display:flex;flex-direction:column;gap:8px">'
+      + '<span style="font-size:11px;font-weight:700;color:#515A5D">'+title+'</span>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px">'+chips+'</div>'
+      + '<div style="display:flex;gap:10px;margin-top:2px">'+vendorInput+dateInput+'</div>'
+      + '</div>';
+  }
+
+  function panelHTML(sel){
+    var phaseOpts = PHASES.map(function(p){
+      var active = sel.phase===p;
+      var bg = active?'#00853C':'#FFFFFF';
+      var fg = active?'#FFFFFF':'#515A5D';
+      var bord = active?'#00853C':'#DFE3E4';
+      return '<button data-action="setField" data-id="'+sel.id+'" data-field="phase" data-val="'+esc(p)+'" style="border:1.5px solid '+bord+';background:'+bg+';color:'+fg+';border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer">'+esc(p)+'</button>';
+    }).join('');
+    var kpiBg = sel.kpi ? '#00853C' : '#C7CDCF';
+    var kpiKnob = sel.kpi ? '22px' : '3px';
+
+    return '<div>'
+      + '<div data-action="closePanel" style="position:fixed;inset:0;background:rgba(20,40,30,.32);z-index:40;animation:scrimIn .18s ease"></div>'
+      + '<aside style="position:fixed;top:0;right:0;height:100vh;width:410px;background:#fff;z-index:41;box-shadow:-8px 0 30px rgba(20,40,30,.18);display:flex;flex-direction:column;animation:sheetIn .22s cubic-bezier(.4,0,.2,1)">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #E4EBE6">'
+      +     '<div>'
+      +       '<div style="font-size:11px;color:#6E787B;letter-spacing:.5px">編輯場站</div>'
+      +       '<div style="font-size:22px;font-weight:900;color:#00853C;font-family:system-ui,sans-serif;letter-spacing:1px">'+esc(sel.code)+'</div>'
+      +     '</div>'
+      +     '<button data-action="closePanel" style="width:34px;height:34px;border-radius:50%;border:1px solid #DFE3E4;background:#fff;cursor:pointer;font-size:18px;color:#6E787B;line-height:1">✕</button>'
+      +   '</div>'
+      +   '<div style="flex:1;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:18px">'
+      +     '<div style="display:flex;gap:12px">'
+      +       '<label style="flex:1;display:flex;flex-direction:column;gap:5px">'
+      +         '<span style="font-size:11px;font-weight:700;color:#515A5D">場站代碼</span>'
+      +         '<input data-input="code" data-id="'+sel.id+'" value="'+esc(sel.code)+'" class="fld" style="font-weight:700;letter-spacing:1px;text-transform:uppercase" />'
+      +       '</label>'
+      +       '<label style="flex:1;display:flex;flex-direction:column;gap:5px">'
+      +         '<span style="font-size:11px;font-weight:700;color:#515A5D">區域</span>'
+      +         '<input data-input="region" data-id="'+sel.id+'" value="'+esc(sel.region)+'" class="fld" />'
+      +       '</label>'
+      +     '</div>'
+      +     '<div style="display:flex;flex-direction:column;gap:8px">'
+      +       '<span style="font-size:11px;font-weight:700;color:#515A5D">建置時程</span>'
+      +       '<div style="display:flex;flex-wrap:wrap;gap:6px">'+phaseOpts+'</div>'
+      +     '</div>'
+      +     statusRow(sel,'cuss','CUSS 自助報到現況')
+      +     statusRow(sel,'sbd','SBD 自助行李託運現況')
+      +     statusRow(sel,'sbg','SBG 自助登機門現況')
+      +     '<div data-action="toggleKpi" data-id="'+sel.id+'" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #DFE3E4;border-radius:10px;cursor:pointer">'
+      +       '<div style="display:flex;flex-direction:column;gap:2px">'
+      +         '<span style="font-size:13px;font-weight:700;color:#141819">2026 經理人 KPI 場站</span>'
+      +         '<span style="font-size:11px;color:#8A938F">標記後方塊右上角顯示白色圓點</span>'
+      +       '</div>'
+      +       '<span style="flex:none;width:44px;height:25px;border-radius:13px;background:'+kpiBg+';position:relative;transition:background .18s ease"><span style="position:absolute;top:3px;left:'+kpiKnob+';width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .18s ease"></span></span>'
+      +     '</div>'
+      +     '<label style="display:flex;flex-direction:column;gap:5px">'
+      +       '<span style="font-size:11px;font-weight:700;color:#515A5D">各站進度（自動化綜整）</span>'
+      +       '<textarea data-input="note" data-id="'+sel.id+'" rows="5" class="fld" style="font-size:12.5px;line-height:1.55;resize:vertical">'+esc(sel.note)+'</textarea>'
+      +     '</label>'
+      +     '<label style="display:flex;flex-direction:column;gap:5px">'
+      +       '<span style="font-size:11px;font-weight:700;color:#515A5D">排程備註（CUSS 排程）</span>'
+      +       '<textarea data-input="schedNote" data-id="'+sel.id+'" rows="3" class="fld" style="font-size:12.5px;line-height:1.55;resize:vertical">'+esc(sel.schedNote)+'</textarea>'
+      +     '</label>'
+      +   '</div>'
+      +   '<div style="padding:14px 22px;border-top:1px solid #E4EBE6;display:flex;justify-content:space-between;align-items:center">'
+      +     '<button data-action="deleteStation" data-id="'+sel.id+'" style="border:1px solid #F0C7C2;background:#FCEAE8;color:#C24626;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">刪除場站</button>'
+      +     '<button data-action="closePanel" style="border:none;background:#00853C;color:#fff;border-radius:20px;padding:9px 22px;font-size:13px;font-weight:700;cursor:pointer">完成</button>'
+      +   '</div>'
+      + '</aside>'
+      + '</div>';
+  }
+
+  function segBtn(mode, label){
+    var active = state.groupMode===mode;
+    return '<button data-action="group" data-mode="'+mode+'" style="border:none;background:'+(active?'#fff':'transparent')+';color:'+(active?'#00853C':'#6E787B')+';border-radius:14px;padding:5px 14px;font-size:12.5px;font-weight:700;cursor:pointer;box-shadow:'+(active?'0 1px 2px rgba(20,40,30,.14)':'none')+'">'+label+'</button>';
+  }
+
+  function render(){
+    hideTip();
+    var stationCount = state.stations.length;
+    var dataDate = '2026·05';
+    var stages = [
+      stage(1,'CUSS','自助報到 / 列印登機證','cuss'),
+      stage(2,'SBD','自助行李託運','sbd'),
+      stage(3,'SBG','自助登機門 / 生物辨識','sbg')
+    ];
+    var quickBg = state.quickMode ? '#00853C' : '#fff';
+    var quickFg = state.quickMode ? '#fff' : '#00853C';
+    var quickState = state.quickMode ? '：開' : '：關';
+
+    var legendMaster = ORDER.map(function(k){
+      return '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:10px;height:10px;border-radius:2px;background:'+STATUS[k].color+'"></span>'+STATUS[k].mark+' '+STATUS[k].label+'</span>';
+    }).join('') + '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:10px;height:10px;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>2026 經理人 KPI 場站</span>';
+
+    var sel = find(state.selectedId);
+    var groupTitle = state.groupMode==='region' ? '區域 × 現況交叉檢視' : 'CUSS 建置上線時程軸 × 現況交叉檢視';
+    var groupSub = state.groupMode==='region'
+      ? '依所屬區域分組；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站'
+      : '依建置時程分組；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站';
+
+    var html =
+      '<div style="min-height:100vh;display:flex;flex-direction:column">'
+      + '<header style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:16px 26px;background:#fff;border-bottom:1px solid #DFE3E4">'
+      +   '<div style="display:flex;flex-direction:column;gap:3px">'
+      +     '<div style="font-size:20px;font-weight:900;color:#00853C;letter-spacing:.5px">機場自助化設備建置儀表板</div>'
+      +     '<div style="font-size:12px;color:#6E787B">旅客自助旅程 · 三階段設備覆蓋 &nbsp;|&nbsp; 全球 '+stationCount+' 個納管場站 &nbsp;|&nbsp; 資料基準 '+dataDate+'</div>'
+      +   '</div>'
+      +   '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
+      +     '<button data-action="addStation" style="border:none;background:#00853C;color:#fff;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">＋ 新增場站</button>'
+      +     '<button data-action="toggleQuick" style="border:1.5px solid #00853C;background:'+quickBg+';color:'+quickFg+';border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">快速切換模式'+quickState+'</button>'
+      +     '<button data-action="exportPNG" style="border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出圖片</button>'
+      +     '<button data-action="exportJSON" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 JSON</button>'
+      +     '<button data-action="exportCSV" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 CSV</button>'
+      +     '<button data-action="resetData" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
+      +   '</div>'
+      + '</header>'
+      + '<div style="padding:6px 26px 0;font-size:11.5px;color:#8A938F">'
+      +   '提示：<b style="color:#00853C">游標移至方塊</b>可顯示完整資訊（現況／系統商／時程／各站進度）；點方塊開啟右側編輯面板。開啟「快速切換模式」後，點方塊<b style="color:#00853C">上半</b>循環切換 CUSS、點<b style="color:#00853C">下半</b>切換 SBD。'
+      + '</div>'
+      + '<div style="flex:1;padding:16px 26px 30px">'
+      +   '<div id="cuss-board" style="background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
+      +     '<section style="flex:none;width:486px;background:#F3F7F4;border-radius:12px;padding:20px 20px 22px">'
+      +       '<div style="font-size:16px;font-weight:900;color:#00853C">三階段設備覆蓋率</div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:3px">依目前 '+stationCount+' 個納管場站即時統計</div>'
+      +       '<div style="display:flex;flex-direction:column;gap:14px;margin-top:16px">'+stages.map(stageHTML).join('')+'</div>'
+      +     '</section>'
+      +     '<section style="flex:1;min-width:0">'
+      +       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'
+      +         '<div style="font-size:16px;font-weight:900;color:#00853C">'+groupTitle+'</div>'
+      +         '<div style="display:flex;background:#EEF2F0;border-radius:16px;padding:3px">'+segBtn('phase','依時程')+segBtn('region','依區域')+'</div>'
+      +       '</div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:3px">'+groupSub+'</div>'
+      +       '<div style="display:flex;flex-direction:column;gap:2px;margin-top:16px">'+groupList().map(groupHTML).join('')+'</div>'
+      +       '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin-top:16px;padding-top:12px;border-top:1px solid #E4EBE6">'
+      +         '<span style="font-size:11px;font-weight:700;color:#6E787B">圖例</span>'
+      +         legendMaster
+      +       '</div>'
+      +     '</section>'
+      +   '</div>'
+      + '</div>'
+      + '</div>'
+      + (sel ? panelHTML(sel) : '');
+
+    document.getElementById('app').innerHTML = html;
+  }
+
+  // ---- tooltip ----
+  var tip = document.getElementById('tip');
+  function tipRow(lbl, s, statusField, vendorField, dateField){
+    var st = STATUS[s[statusField]];
+    var extra = [];
+    if(s[vendorField]) extra.push('系統商 '+esc(s[vendorField]));
+    if(dateField && s[dateField]) extra.push(esc(s[dateField]));
+    var tail = extra.length ? ' <span style="color:#9DB3A8">· '+extra.join(' · ')+'</span>' : '';
+    return '<div style="display:flex;align-items:center;gap:6px;margin-top:3px"><span style="width:8px;height:8px;border-radius:2px;background:'+st.color+';flex:none"></span><b style="width:30px;display:inline-block">'+lbl+'</b>'+st.label+tail+'</div>';
+  }
+  function showTip(s, x, y){
+    var head = '<div style="font-size:14px;font-weight:800;letter-spacing:.5px">'+esc(s.code)
+      + (s.kpi?' <span style="font-size:9px;color:#8FE3B6;border:1px solid #8FE3B6;border-radius:6px;padding:0 4px;vertical-align:middle">KPI</span>':'')
+      + '</div>'
+      + '<div style="font-size:10.5px;color:#9DB3A8;margin-bottom:5px">'+esc(s.region||'—')+' · '+esc(s.phase)+'</div>';
+    var rows = tipRow('CUSS',s,'cuss','cussVendor','cussDate')+tipRow('SBD',s,'sbd','sbdVendor','sbdDate')+tipRow('SBG',s,'sbg','sbgVendor',null);
+    var note = s.note ? '<div style="margin-top:7px;padding-top:6px;border-top:1px solid rgba(255,255,255,.14);color:#C7D6CE;white-space:pre-wrap">'+esc(s.note)+'</div>' : '';
+    tip.innerHTML = head + rows + note;
+    tip.style.display = 'block';
+    tip.style.opacity = '1';
+    positionTip(x, y);
+  }
+  function positionTip(x, y){
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var nx = x + 16, ny = y + 16;
+    if(nx + w > window.innerWidth - 8) nx = x - w - 16;
+    if(ny + h > window.innerHeight - 8) ny = window.innerHeight - h - 8;
+    if(ny < 8) ny = 8;
+    tip.style.left = nx + 'px';
+    tip.style.top = ny + 'px';
+  }
+  function hideTip(){ tip.style.opacity = '0'; tip.style.display = 'none'; }
+
+  // ---- event delegation ----
+  var app = document.getElementById('app');
+  app.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target.closest('[data-action]') : null;
+    if(!t) return;
+    var a = t.getAttribute('data-action');
+    var id = t.getAttribute('data-id'); if(id!=null) id = +id;
+    switch(a){
+      case 'addStation': addStation(); break;
+      case 'toggleQuick': toggleQuick(); break;
+      case 'exportPNG': exportPNG(); break;
+      case 'exportJSON': exportJSON(); break;
+      case 'exportCSV': exportCSV(); break;
+      case 'resetData': resetData(); break;
+      case 'closePanel': closePanel(); break;
+      case 'deleteStation': deleteStation(id); break;
+      case 'group': setGroupMode(t.getAttribute('data-mode')); break;
+      case 'toggleKpi': var s=find(id); if(s) setField(id,'kpi',!s.kpi); break;
+      case 'setField': setField(id, t.getAttribute('data-field'), t.getAttribute('data-val')); break;
+      case 'chipTop':
+        if(state.quickMode){ hideTip(); cycle(id,'cuss'); } else select(id);
+        break;
+      case 'chipBot':
+        if(state.quickMode){ hideTip(); cycle(id,'sbd'); } else select(id);
+        break;
+    }
+  });
+  app.addEventListener('change', function(e){
+    var t = e.target;
+    var inp = t.getAttribute && t.getAttribute('data-input');
+    if(!inp) return;
+    var id = +t.getAttribute('data-id');
+    var val = t.value;
+    if(inp==='code') val = (val||'').toUpperCase();
+    setField(id, inp, val);
+  });
+  app.addEventListener('mouseover', function(e){
+    var c = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if(!c) return;
+    var s = find(+c.getAttribute('data-tip'));
+    if(s) showTip(s, e.clientX, e.clientY);
+  });
+  app.addEventListener('mousemove', function(e){
+    if(tip.style.display==='block') positionTip(e.clientX, e.clientY);
+  });
+  app.addEventListener('mouseout', function(e){
+    var c = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if(!c) return;
+    var to = e.relatedTarget;
+    if(to && c.contains(to)) return;
+    hideTip();
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape' && state.selectedId!=null) closePanel();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
