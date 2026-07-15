@@ -263,7 +263,20 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(!isBtn && e && e.target && e.target.closest && e.target.closest('[data-stop]')) return;
     state.logOpen = false; render();
   }
-  function clearLog(){ if(!window.confirm('確定要清除所有更新紀錄嗎？')) return; changelog.length = 0; saveLog(); render(); }
+  function clearLog(){
+    if(!changelog.length){ window.alert('目前沒有可清除的更新紀錄。'); return; }
+    var id = window.prompt('清除更新紀錄前，請輸入您的人事代號。\n\n注意：此清除動作將永久留存於稽核紀錄，無法刪除。');
+    if(id==null) return;                       // 使用者取消
+    id = String(id).trim();
+    if(!id){ window.alert('未輸入人事代號，已取消清除。'); return; }
+    var n = changelog.length;
+    // permanent audit entry — never removed by future clears
+    clearAudit.unshift({ t: stampFull(), by: id, count: n });
+    saveClearAudit();
+    changelog.length = 0; saveLog();
+    logEvent('更新紀錄由人事代號 '+id+' 清除（清除 '+n+' 筆）');
+    render();
+  }
   function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; render(); }
   function setAllExcluded(on){
     var e = {};
@@ -314,6 +327,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(changelog.length>500) changelog.length=500;
     saveLog();
   }
+  // permanent, un-deletable audit trail of every "清除紀錄" action (with人事代號)
+  var CLEAR_STORE = SNAPSHOT ? STORE_KEY+'_clears' : 'eva_cuss_clearaudit_v1';
+  var clearAudit = (function(){
+    try{ var raw = localStorage.getItem(CLEAR_STORE); if(raw){ var a=JSON.parse(raw); if(Array.isArray(a) && a.length) return a; } }catch(e){}
+    if(SNAPSHOT && window.__CLEARLOG__ && Object.prototype.toString.call(window.__CLEARLOG__)==='[object Array]') return window.__CLEARLOG__.slice();
+    return [];
+  })();
+  function saveClearAudit(){ try{ localStorage.setItem(CLEAR_STORE, JSON.stringify(clearAudit)); }catch(e){} }
   var FIELD_LABEL = { code:'場站代碼', region:'區域', phase:'建置時程', cuss:'CUSS 現況', sbd:'SBD 現況', sbg:'SBG 現況',
     cussVendor:'CUSS 系統商', sbdVendor:'SBD 系統商', sbgVendor:'SBG 系統商', cussDate:'CUSS 啟用／時程', sbdDate:'SBD 啟用／時程',
     kpi:'經理人 KPI', bagTag:'CUSS 列印行李條', pax:'旅客量', flights:'航班量', note:'各站進度', schedNote:'排程備註' };
@@ -369,7 +390,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var J = function(v){ return JSON.stringify(v).replace(/</g,'\\u003c'); };
       var inject = SO+'window.__SNAPSHOT__='+J(data)
         + ';window.__SNAPSHOT_TS__='+J(ts)
-        + ';window.__CHANGELOG__='+J(changelog.slice(0,500))+';'+SC;
+        + ';window.__CHANGELOG__='+J(changelog.slice(0,500))
+        + ';window.__CLEARLOG__='+J(clearAudit)+';'+SC;
       // strip any snapshot that a previously-saved source may already carry, then
       // inject a fresh one right after the body tag so it runs before the app script
       src = src.replace(new RegExp(SO+'window\\.__SNAPSHOT__=[\\s\\S]*?'+SC+'\\s*','i'), '');
@@ -1641,17 +1663,30 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             + '</div>';
         }).join('')
       : '<div style="padding:26px 4px;text-align:center;color:#9AA3A0;font-size:12.5px">目前沒有更新紀錄。編輯場站、匯入資料、新增／刪除、重設或另存 HTML 時會自動記錄。</div>';
+    // permanent, un-deletable audit of every 清除紀錄 action
+    var auditRows = clearAudit.map(function(e){
+      return '<div style="display:flex;gap:12px;padding:8px 4px;border-bottom:1px solid #F1E7D8">'
+        + '<div style="flex:none;width:150px;font-size:11.5px;color:#9A7B32;font-variant-numeric:tabular-nums">'+esc(e.t)+'</div>'
+        + '<div style="flex:1;min-width:0;font-size:12.5px;color:#6B5418;line-height:1.5">人事代號 <b>'+esc(e.by)+'</b> 清除更新紀錄（清除 '+esc(e.count)+' 筆）</div>'
+        + '</div>';
+    }).join('');
+    var auditBlock = clearAudit.length
+      ? '<div style="margin:2px 0 12px;border:1px solid #EFDFC0;background:#FBF6EA;border-radius:10px;padding:10px 12px">'
+        + '<div style="font-size:11.5px;font-weight:800;color:#9A7B32;margin-bottom:4px">清除紀錄稽核（永久保存 · 不可刪除，共 '+clearAudit.length+' 筆）</div>'
+        + auditRows
+        + '</div>'
+      : '';
     return '<div data-action="closeLog" style="position:fixed;inset:0;background:rgba(20,32,26,.42);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:56px 16px">'
       + '<div data-stop="1" style="width:760px;max-width:100%;max-height:82vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(15,30,22,.32);overflow:hidden">'
       +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #E4EBE6">'
       +     '<div><div style="font-size:16px;font-weight:900;color:#00853C">更新紀錄日誌</div>'
-      +       '<div style="font-size:11px;color:#6E787B;margin-top:2px">共 '+changelog.length+' 筆　·　由新到舊，最多保留 500 筆</div></div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:2px">共 '+changelog.length+' 筆　·　由新到舊，最多保留 500 筆　·　清除需輸入人事代號並永久留存</div></div>'
       +     '<div style="display:flex;gap:8px">'
       +       '<button data-action="clearLog" style="border:1px solid #E4C9C2;background:#fff;color:#C24626;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">清除紀錄</button>'
       +       '<button data-action="closeLog" data-role="logclose" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">關閉</button>'
       +     '</div>'
       +   '</div>'
-      +   '<div style="flex:1;min-height:0;overflow:auto;padding:6px 20px 16px">'+rows+'</div>'
+      +   '<div style="flex:1;min-height:0;overflow:auto;padding:10px 20px 16px">'+auditBlock+rows+'</div>'
       + '</div>'
       + '</div>';
   }
