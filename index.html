@@ -422,8 +422,24 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</div>';
   }
 
-  // order chips left→right by automation completeness (most complete first)
+  // priority tier (1 = leftmost / highest):
+  //  1 三階段完備 + CUSS 列印行李條   2 CUSS+SBD 完備 + CUSS 列印行李條
+  //  3 三階段完備                     4 CUSS/SBD 完備      5 其餘（原始規則）
+  function tierRank(s){
+    var allThree = s.cuss==='online' && s.sbd==='online' && s.sbg==='online';
+    var cussSbd  = s.cuss==='online' && s.sbd==='online';
+    var bag = !!s.bagTag;
+    if(allThree && bag) return 1;
+    if(cussSbd && bag)  return 2;
+    if(allThree)        return 3;
+    if(cussSbd)         return 4;
+    return 5;
+  }
+  // order chips left→right: priority tier first, then the original rule
+  // (automation completeness high→low, then CUSS status, then code)
   function byAutomation(a, b){
+    var t = tierRank(a) - tierRank(b);
+    if(t) return t;
     var d = automationScore(b) - automationScore(a);
     if(Math.abs(d) > 1e-9) return d;
     var c = STATUS_WEIGHT[b.cuss] - STATUS_WEIGHT[a.cuss];
