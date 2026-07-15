@@ -1013,8 +1013,19 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var sel = find(state.selectedId);
     var groupTitle = state.groupMode==='region' ? '區域 × 現況交叉檢視' : 'CUSS 建置上線時程軸 × 現況交叉檢視';
     var groupSub = state.groupMode==='region'
-      ? '依所屬區域分組；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站'
+      ? '依所屬區域分組，區域內方塊依建置時程（早→晚）排序；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站'
       : '依建置時程分組；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站';
+    // region view: a schedule axis above the rows (chips within each region run
+    // left→right in this phase order)
+    var phaseAxis = state.groupMode==='region'
+      ? '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:12px;padding:8px 12px;background:#F5F7F7;border-radius:10px">'
+        + '<span style="font-size:11px;font-weight:700;color:#515A5D">建置時程（左→右）</span>'
+        + PHASES.map(function(p,i){
+            return (i ? '<span style="color:#C7CDCF;font-size:12px">›</span>' : '')
+              + '<span style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#515A5D"><span style="width:9px;height:9px;border-radius:50%;background:'+(phaseDot[p]||STATUS.evaluating.color)+'"></span>'+esc(p)+'</span>';
+          }).join('')
+        + '</div>'
+      : '';
 
     var viewSwitch = '<div style="display:flex;background:#EEF2F0;border-radius:16px;padding:3px">'+viewBtn('board','時程儀表板')+viewBtn('map','地圖 · 定位矩陣')+'</div>';
     var quickBtn = state.view==='board'
@@ -1034,7 +1045,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +       '<div style="display:flex;background:#EEF2F0;border-radius:16px;padding:3px">'+segBtn('phase','依時程')+segBtn('region','依區域')+'</div>'
       +     '</div>'
       +     '<div style="font-size:11px;color:#6E787B;margin-top:3px">'+groupSub+'</div>'
-      +     '<div style="display:flex;flex-direction:column;gap:2px;margin-top:16px">'+groupList().map(groupHTML).join('')+'</div>'
+      +     phaseAxis
+      +     '<div style="display:flex;flex-direction:column;gap:2px;margin-top:'+(state.groupMode==='region'?'6px':'16px')+'">'+groupList().map(groupHTML).join('')+'</div>'
       +     '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin-top:16px;padding-top:12px;border-top:1px solid #E4EBE6">'
       +       '<span style="font-size:11px;font-weight:700;color:#6E787B">圖例</span>'
       +       legendMaster
