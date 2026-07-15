@@ -607,6 +607,36 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
+  // Spread overlapping map dots apart (collision resolution) with a spring back
+  // to each dot's true geographic point — dense regions fan out, isolated dots
+  // stay put, and nothing overlaps.
+  function spreadDots(items){
+    var N=items.length, pad=1.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy;
+    // phase 1: collide + weak spring to home (positions dots near geography)
+    for(var it=0; it<110; it++){
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i]; b=items[j];
+        dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
+        if(d<min){ push=(min-d)/2; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; }
+      }
+      for(k=0;k<N;k++){ a=items[k]; a.x+=(a.tx-a.x)*0.05; a.y+=(a.ty-a.y)*0.05; }
+    }
+    // phase 2: collision-only until settled — guarantees no overlap
+    for(it=0; it<60; it++){
+      var moved=false;
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i]; b=items[j];
+        dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
+        if(d<min){ push=(min-d)/2+0.02; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; moved=true; }
+      }
+      if(!moved) break;
+    }
+    for(k=0;k<N;k++){ a=items[k];
+      a.x=Math.max(a.R, Math.min(1000-a.R, a.x));
+      a.y=Math.max(12+a.R, Math.min(420-a.R, a.y));
+    }
+  }
+
   // Nudge overlapping labels apart (box separation) with a weak spring back to
   // each dot, so uncrowded labels stay put and crowded ones fan out.
   function layoutLabels(items){
@@ -641,18 +671,24 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var land = MAPCONT.map(function(c){
       return '<path d="'+c.p+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
     }).join('');
-    // sort so smaller (lower pax) dots draw first, big hubs on top
-    var ss = visible.slice().filter(function(s){ return GEO[s.code]||(s.lat!=null); });
-    ss.sort(function(a,b){ return (a.pax||0)-(b.pax||0); });
+    // build dot list, then spread apart so nothing overlaps (kept near true geo)
+    var pool = visible.filter(function(s){ return GEO[s.code]||(s.lat!=null); }).map(function(s){
+      var p = mproj(GEO[s.code].lat, GEO[s.code].lon);
+      var R = baseDotRadius(s) * sc;
+      return { s:s, tx:p.x, ty:p.y, x:p.x, y:p.y, R:R };
+    });
+    spreadDots(pool);
+    // draw smaller (lower pax) dots first, big hubs on top
+    pool.sort(function(a,b){ return (a.s.pax||0)-(b.s.pax||0); });
     // label font in world units scales with zoom so on-screen size stays ~constant
     // → zooming into a dense cluster genuinely de-crowds the labels
     var vbNow = state.mapVB;
     var labelFS = Math.max(2.6, Math.min(16, 9.5 * (vbNow.w / BASE_VB.w)));
     var defs = '', dots = '', labelItems = [];
-    ss.forEach(function(s){
-      var g = GEO[s.code]; if(!g) return;
-      var p = mproj(g.lat, g.lon), cx = +p.x.toFixed(1), cy = +p.y.toFixed(1);
-      var R = +(baseDotRadius(s) * sc).toFixed(1);
+    pool.forEach(function(m){
+      var s = m.s;
+      var cx = +m.x.toFixed(1), cy = +m.y.toFixed(1);
+      var R = +m.R.toFixed(1);
       var body;
       if(twoTone){
         var cid = 'dc'+s.id;
@@ -765,23 +801,46 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         }).join('')
       + '</div>';
   }
+  // Snap matrix dots onto a tidy grid: each dot takes the free cell nearest its
+  // ideal (volume, automation) position, so dots never overlap yet stay ordered.
+  function gridSnapMatrix(items){
+    var COLS=14, ROWS=12, MX=4, SPAN=92, occ={};
+    items.sort(function(a,b){ return (b.s.pax||0)-(a.s.pax||0); });   // hubs claim their cell first
+    items.forEach(function(m){
+      var c0=Math.round(m.fx*(COLS-1)), r0=Math.round((1-m.fy)*(ROWS-1)), best=null;
+      for(var rad=0; rad<COLS+ROWS && !best; rad++){
+        var bd=Infinity, bc=null;
+        for(var dc=-rad;dc<=rad;dc++)for(var dr=-rad;dr<=rad;dr++){
+          if(Math.max(Math.abs(dc),Math.abs(dr))!==rad) continue;
+          var c=c0+dc, r=r0+dr;
+          if(c<0||c>=COLS||r<0||r>=ROWS||occ[c+'_'+r]) continue;
+          var dd=dc*dc*1.15+dr*dr;   // slight horizontal-spread preference
+          if(dd<bd){ bd=dd; bc={c:c,r:r}; }
+        }
+        if(bc) best=bc;
+      }
+      if(!best) best={c:c0,r:r0};
+      occ[best.c+'_'+best.r]=1;
+      m.left = MX + (best.c+0.5)/COLS*SPAN;
+      m.top  = MX + (best.r+0.5)/ROWS*SPAN;
+    });
+  }
   function matrixHTML(){
     var visible = filteredStations();
     var range = paxRange(visible);   // rescale X axis to the currently-visible stations
-    var pts = [];
-    var dots = visible.map(function(s){
-      var x = volumeScoreIn(s, range), y = automationScore(s);
-      var jx = (((s.id*37)%100)/100 - 0.5) * 7;
-      var jy = (((s.id*61)%100)/100 - 0.5) * 7;
-      var left = Math.max(4, Math.min(96, 6 + x*88 + jx));
-      var top = Math.max(4, Math.min(96, 6 + (1-y)*88 + jy));
-      pts.push({ left:left, top:top });
+    // snap dots to a tidy grid by their (volume, automation) position so they
+    // never overlap — position stays meaningful, arrangement stays neat
+    var gitems = visible.map(function(s){ return { s:s, fx:volumeScoreIn(s,range), fy:automationScore(s) }; });
+    gridSnapMatrix(gitems);
+    var pts = gitems.map(function(m){ return { left:m.left, top:m.top }; });
+    var dots = gitems.map(function(m){
+      var s = m.s;
       var r = 12, cf = 60;   // dot split: CUSS top 60%, SBD bottom 40%
       var bg = 'linear-gradient(to bottom,'+STATUS[s.cuss].color+' 0,'+STATUS[s.cuss].color+' '+cf+'%,'+STATUS[s.sbd].color+' '+cf+'%,'+STATUS[s.sbd].color+' 100%)';
       var ring = (s.kpi && state.showKpiRing) ? 'box-shadow:0 0 0 2px #fff,0 0 0 3.5px '+STATUS[s.cuss].color : '0 1px 2px rgba(0,0,0,.2)';
       var selO = s.id===state.selectedId ? ';outline:2px solid #00853C;outline-offset:1px' : '';
       return '<div data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" title="'+esc(s.code)+'" '
-        + 'style="position:absolute;left:'+left.toFixed(2)+'%;top:'+top.toFixed(2)+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+bg+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
+        + 'style="position:absolute;left:'+m.left.toFixed(2)+'%;top:'+m.top.toFixed(2)+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+bg+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
     }).join('');
 
     // place each quadrant icon in the least-crowded corner of its cell
