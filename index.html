@@ -182,7 +182,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
                 showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapVB: { x:0, y:12, w:1000, h:408 },
                 comboSel: [], comboOpen: false,
-                chipFont: 15, legendFont: 11, legendShowShape: true,
+                chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
                 pickerOpen: false, logOpen: false };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
@@ -922,7 +922,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</span>';
   }
   function chipHTML(s){
-    var kpiDot = s.kpi ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C;pointer-events:none"></span>' : '';
+    var kpiDot = (s.kpi && state.showKpiBoard!==false) ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C;pointer-events:none"></span>' : '';
     var bagIcon = s.bagTag ? bagTagIcon() : '';
     var ring = s.id===state.selectedId ? '#00853C' : '#FFFFFF';
     var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:calc(var(--chip-font,15px) * 0.53);font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85;pointer-events:none">'+esc(s.cussVendor)+'</span>' : '';
@@ -1603,6 +1603,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<span data-legendfontlbl style="font-size:11px;color:#8A938F;min-width:30px">'+state.legendFont+'px</span>'
       +   '</label>'
       +   '<button data-action="toggleLegendSwatch" style="border:1.5px solid #00853C;background:'+(showShape?'#00853C':'#fff')+';color:'+(showShape?'#fff':'#00853C')+';border-radius:14px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">圖例圖形（實心圓／三角）：'+(showShape?'顯示':'隱藏')+'</button>'
+      +   '<span style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#515A5D">經理人 KPI'+switchToggle('kpiBoard','data-kb',state.showKpiBoard!==false)+'</span>'
+      +   '<button data-action="resetDisplay" title="將場站名稱字級、圖例字級、圖例圖形與經理人 KPI 顯示恢復為預設" style="margin-left:auto;border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:14px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">回復預設</button>'
       + '</div>';
     var boardBody =
       '<div id="cuss-board" style="--chip-font:'+state.chipFont+'px;--legend-font:'+state.legendFont+'px;background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
@@ -1757,6 +1759,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'toggleCombo': toggleCombo(t.getAttribute('data-combo')); break;
       case 'clearCombo': clearCombo(); break;
       case 'toggleLegendSwatch': state.legendShowShape = !(state.legendShowShape !== false); render(); break;
+      case 'kpiBoard': state.showKpiBoard = t.getAttribute('data-kb')==='on'; render(); break;
+      case 'resetDisplay': state.chipFont=15; state.legendFont=11; state.legendShowShape=true; state.showKpiBoard=true; render(); break;
       case 'togglePicker': togglePicker(); break;
       case 'toggleExclude': toggleExclude(id); break;
       case 'pickAll': setAllExcluded(false); break;
