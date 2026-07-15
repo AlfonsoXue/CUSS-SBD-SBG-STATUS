@@ -337,29 +337,26 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   };
 
   // ---- scoring for map & matrix ----
-  // ---- CUSS/SBD/SBG online-combination categories (exact subsets) ----
-  // membership = which of the three stages are 已上線 (online)
+  // ---- CUSS/SBD/SBG online-combination categories (inclusive) ----
+  // a station counts toward a combo if ALL listed stages are 已上線 (online),
+  // regardless of the others — e.g. CUSS＋SBD also includes all-three stations
   var COMBOS = [
-    { key:'all',  label:'三階段皆已上線',   on:'cuss+sbd+sbg' },
-    { key:'cs',   label:'僅 CUSS＋SBD',   on:'cuss+sbd' },
-    { key:'cg',   label:'僅 CUSS＋SBG',   on:'cuss+sbg' },
-    { key:'sg',   label:'僅 SBD＋SBG',    on:'sbd+sbg' },
-    { key:'c',    label:'僅 CUSS',        on:'cuss' },
-    { key:'s',    label:'僅 SBD',         on:'sbd' },
-    { key:'g',    label:'僅 SBG',         on:'sbg' },
-    { key:'none', label:'三階段皆未上線', on:'' }
+    { key:'all',  label:'三階段皆已上線', req:['cuss','sbd','sbg'] },
+    { key:'cs',   label:'CUSS＋SBD',    req:['cuss','sbd'] },
+    { key:'cg',   label:'CUSS＋SBG',    req:['cuss','sbg'] },
+    { key:'sg',   label:'SBD＋SBG',     req:['sbd','sbg'] },
+    { key:'c',    label:'CUSS',         req:['cuss'] },
+    { key:'s',    label:'SBD',          req:['sbd'] },
+    { key:'g',    label:'SBG',          req:['sbg'] },
+    { key:'none', label:'三階段皆未上線', req:[] }
   ];
-  function stationComboCanon(s){
-    var on = [];
-    if(s.cuss==='online') on.push('cuss');
-    if(s.sbd==='online')  on.push('sbd');
-    if(s.sbg==='online')  on.push('sbg');
-    return on.join('+');
+  function comboMatch(s, combo){
+    if(combo.key==='none') return s.cuss!=='online' && s.sbd!=='online' && s.sbg!=='online';
+    return combo.req.every(function(st){ return s[st]==='online'; });
   }
   function comboCounts(){
     var c = {}; COMBOS.forEach(function(o){ c[o.key]=0; });
-    var canon2key = {}; COMBOS.forEach(function(o){ canon2key[o.on]=o.key; });
-    state.stations.forEach(function(s){ var k=canon2key[stationComboCanon(s)]; if(k) c[k]++; });
+    state.stations.forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
     return c;
   }
 
