@@ -1126,8 +1126,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var covCardsHTML;
     if(comboSelValid.length){
       var _counts = comboCounts();
+      // single-stage combos (CUSS / SBD / SBG alone) keep the original multi-status
+      // stacked bar; multi-stage搭配 use the符合／其餘 combination card.
+      var stageByCode = { cuss:stages[0], sbd:stages[1], sbg:stages[2] };
       covCardsHTML = comboSelValid.map(function(k){
         var combo = COMBOS.filter(function(c){ return c.key===k; })[0];
+        if(combo.req.length===1 && stageByCode[combo.req[0]]){
+          return stageHTML(stageByCode[combo.req[0]]);
+        }
         return comboCardHTML(combo, _counts[k], stationCount);
       }).join('');
     } else {
