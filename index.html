@@ -344,7 +344,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   var COMBOS = [
     { key:'all',  label:'CUSS｜SBD｜SBG皆已上線', title:'CUSS+SBD+SBG', sdesc:'三項自助皆已上線', req:['cuss','sbd','sbg'] },
     { key:'cs',   label:'CUSS＋SBD',    title:'CUSS+SBD', sdesc:'CUSS 與 SBD 皆已上線', req:['cuss','sbd'] },
-    { key:'cg',   label:'CUSS＋SBG',    title:'CUSS+SBG', sdesc:'CUSS 與 SBG 皆已上線', req:['cuss','sbg'] },
+    { key:'cg',   label:'僅CUSS＋SBG',  title:'僅CUSS+SBG', sdesc:'僅 CUSS 與 SBG 已上線（未含 SBD）', req:['cuss','sbg'], not:['sbd'] },
     { key:'sg',   label:'SBD＋SBG',     title:'SBD+SBG', sdesc:'SBD 與 SBG 皆已上線', req:['sbd','sbg'] },
     { key:'c',    label:'CUSS',         title:'CUSS', sdesc:'CUSS 已上線', req:['cuss'] },
     { key:'s',    label:'SBD',          title:'SBD', sdesc:'SBD 已上線', req:['sbd'] },
@@ -353,7 +353,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   ];
   function comboMatch(s, combo){
     if(combo.key==='none') return s.cuss!=='online' && s.sbd!=='online' && s.sbg!=='online';
-    return combo.req.every(function(st){ return s[st]==='online'; });
+    // req stages must be online; any `not` stages must NOT be online (exclusive/「僅」)
+    var reqOk = combo.req.every(function(st){ return s[st]==='online'; });
+    var notOk = (combo.not||[]).every(function(st){ return s[st]!=='online'; });
+    return reqOk && notOk;
   }
   function comboCounts(){
     var c = {}; COMBOS.forEach(function(o){ c[o.key]=0; });
