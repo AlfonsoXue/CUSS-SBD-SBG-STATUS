@@ -1530,24 +1530,28 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   // EVA AIR corporate logo (inline SVG so the file stays self-contained)
   function evaLogo(){
-    var g = '#00873E', o = '#F07F1A';
-    return '<svg width="164" height="48" viewBox="0 0 372 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EVA AIR 長榮航空" style="display:block;flex:none">'
-      // wordmark — heavy condensed to echo the EVA custom face
-      + '<text x="0" y="44" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="50" fill="'+g+'" transform="scale(0.92,1)" style="font-stretch:condensed">EVA AIR</text>'
-      + '<text x="2" y="96" font-family="\'PingFang TC\',\'Microsoft JhengHei\',\'Noto Sans TC\',sans-serif" font-weight="900" font-size="38" fill="'+g+'" letter-spacing="3">長榮航空</text>'
+    var g = '#009540', o = '#F07F1A';
+    var mer = '';   // globe meridians (vertical ellipses)
+    [8,17,25].forEach(function(rx){ mer += '<ellipse cx="58" cy="56" rx="'+rx+'" ry="30" fill="none" stroke="'+o+'" stroke-width="1"/>'; });
+    var par = '';   // globe parallels (horizontal chords)
+    [-20,-10,0,10,20].forEach(function(dy){ var w = Math.sqrt(1-(dy/30)*(dy/30))*30; par += '<line x1="'+(58-w).toFixed(1)+'" y1="'+(56+dy)+'" x2="'+(58+w).toFixed(1)+'" y2="'+(56+dy)+'" stroke="'+o+'" stroke-width="'+(dy===0?1.4:1)+'"/>'; });
+    return '<svg width="168" height="48" viewBox="0 0 380 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EVA AIR 長榮航空" style="display:block;flex:none">'
+      // wordmark — heavy, slightly forward-slanted to echo the EVA custom face
+      + '<g transform="translate(0,44) skewX(-9)">'
+      +   '<text x="0" y="0" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="52" fill="'+g+'" transform="scale(0.9,1)" letter-spacing="-1">EVA AIR</text>'
+      + '</g>'
+      + '<text x="0" y="98" font-family="\'PingFang TC\',\'Microsoft JhengHei\',\'Noto Sans TC\',sans-serif" font-weight="900" font-size="40" fill="'+g+'" letter-spacing="2">長榮航空</text>'
       // tailfin with globe
-      + '<g transform="translate(250,2)">'
-      +   '<path d="M4 100 L64 2 L98 2 L98 100 Z" fill="'+g+'"/>'                          // swept fin
+      + '<g transform="translate(256,2)">'
+      +   '<path d="M6 100 L66 2 L100 2 L100 100 Z" fill="'+g+'"/>'                          // swept fin
       +   '<g transform="rotate(-20 58 56)">'
-      +     '<ellipse cx="58" cy="56" rx="32" ry="27" fill="#ffffff"/>'                     // globe window
-      +     '<ellipse cx="58" cy="56" rx="32" ry="27" fill="none" stroke="'+o+'" stroke-width="1.6"/>'
-      +     '<line x1="26" y1="56" x2="90" y2="56" stroke="'+o+'" stroke-width="1.4"/>'       // equator
-      +     '<path d="M31 42 H85 M31 70 H85" stroke="'+o+'" stroke-width="1.1" fill="none"/>' // parallels
-      +     '<ellipse cx="58" cy="56" rx="11" ry="27" fill="none" stroke="'+o+'" stroke-width="1.1"/>'  // meridians
-      +     '<ellipse cx="58" cy="56" rx="22" ry="27" fill="none" stroke="'+o+'" stroke-width="1.1"/>'
+      +     '<ellipse cx="58" cy="56" rx="30" ry="30" fill="#ffffff"/>'                       // globe window
+      +     '<circle cx="58" cy="56" r="30" fill="none" stroke="'+o+'" stroke-width="1.7"/>'
+      +     par + mer
       +   '</g>'
-      +   '<path d="M58 28 L63 50 L86 56 L63 62 L58 88 L53 62 L30 56 L53 50 Z" fill="'+g+'"/>'  // compass star (upright)
-      +   '<circle cx="58" cy="56" r="3.2" fill="#ffffff"/>'
+      +   '<path d="M58 24 L63 50 L88 56 L63 62 L58 90 L53 62 L28 56 L53 50 Z" fill="'+g+'"/>'  // compass star (upright)
+      +   '<circle cx="58" cy="56" r="4" fill="'+o+'"/>'
+      +   '<circle cx="58" cy="56" r="1.8" fill="'+g+'"/>'
       + '</g>'
       + '</svg>';
   }
