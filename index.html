@@ -328,7 +328,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       return { w:+w.toFixed(2), color:STATUS[k].color, textOn:STATUS[k].textOn, label: w>=6 ? String(c[k]) : '' };
     });
     var legend = ORDER.map(function(k){ return { color:STATUS[k].color, mark:STATUS[k].mark, text:c[k], label:STATUS[k].label }; });
-    return { n:n, code:code, desc:desc, pctLabel: pct+'%', online:c.online, segs:segs, legend:legend };
+    var onlineList = list.filter(function(s){ return s[f]==='online'; });
+    return { n:n, code:code, desc:desc, pctLabel: pct+'%', online:c.online, segs:segs, legend:legend, onlineList:onlineList };
   }
 
   var phaseDot = {
@@ -415,6 +416,20 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(code==='SBG') return o+'<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" '+a+'/><path d="M9.2 10h.01M14.8 10h.01" '+a+'/><path d="M9.5 14a3 3 0 0 0 5 0" '+a+'/></svg>';
     return String(code);
   }
+  // small pills listing the station codes that belong to a coverage card, plus a
+  // count. `label` names the set (e.g. 已上線 / 符合). Empty → a muted dash.
+  function stationPills(list, label){
+    if(!list.length) return '<div style="margin-top:11px;padding-top:10px;border-top:1px dashed #E2E8E4;font-size:10.5px;color:#9AA3A0">'+esc(label)+'：—</div>';
+    var pills = list.map(function(s){
+      return '<span style="display:inline-block;font-size:10px;font-weight:700;color:#2C6A47;background:#E6F1EA;border:1px solid #CFE4D8;border-radius:4px;padding:1px 5px;line-height:1.5">'+esc(s.code)+'</span>';
+    }).join('');
+    return '<div style="margin-top:11px;padding-top:10px;border-top:1px dashed #E2E8E4">'
+      + '<div style="font-size:10.5px;color:#8A938F;margin-bottom:5px">'+esc(label)+'（'+list.length+' 站）</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:4px">'+pills+'</div>'
+      + '</div>';
+  }
+  function cardIdsAttr(list){ return 'data-cardids="'+list.map(function(s){ return s.id; }).join(',')+'"'; }
+
   function stageHTML(st){
     var segs = st.segs.map(function(sg){
       return '<div style="width:'+sg.w+'%;background:'+sg.color+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:'+sg.textOn+'">'+esc(sg.label)+'</div>';
@@ -422,7 +437,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var legend = st.legend.map(function(lg){
       return '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:'+lg.color+';display:inline-block"></span>'+lg.mark+' '+esc(lg.text)+' '+esc(lg.label)+'</div>';
     }).join('');
-    return '<div style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6">'
+    return '<div class="covcard" '+cardIdsAttr(st.onlineList)+' style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6;transition:border-color .12s,box-shadow .12s">'
       + '<div style="display:flex;align-items:flex-start;gap:12px">'
       +   '<div style="flex:none;width:30px;height:30px;border-radius:50%;background:#00853C;color:#fff;display:flex;align-items:center;justify-content:center">'+stageIcon(st.code)+'</div>'
       +   '<div style="flex:1;min-width:0">'
@@ -436,6 +451,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</div>'
       + '<div style="display:flex;height:20px;border-radius:10px;overflow:hidden;margin-top:14px;border:1px solid #DDE4E0">'+segs+'</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">'+legend+'</div>'
+      + stationPills(st.onlineList, '已上線場站')
       + '</div>';
   }
 
@@ -448,13 +464,15 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // title = the combo name (the red-box heading), value = its share of all stations.
   function comboCardHTML(combo, count, total){
     var t = total || 1;
+    var matchList = state.stations.filter(function(s){ return comboMatch(s, combo); });
+    count = matchList.length;
     var matchW = (count/t)*100;
     var restW = 100 - matchW;
     var pct = Math.round(matchW);
     var segs = '';
     if(matchW > 0) segs += '<div style="width:'+matchW.toFixed(2)+'%;background:#00853C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff">'+(matchW>=6?count:'')+'</div>';
     if(restW > 0) segs += '<div style="width:'+restW.toFixed(2)+'%;background:#DCDBD6;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#8A938F">'+(restW>=6?(total-count):'')+'</div>';
-    return '<div style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6">'
+    return '<div class="covcard" '+cardIdsAttr(matchList)+' style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6;transition:border-color .12s,box-shadow .12s">'
       + '<div style="display:flex;align-items:flex-start;gap:12px">'
       +   '<div style="flex:none;width:30px;height:30px;border-radius:50%;background:#00853C;color:#fff;display:flex;align-items:center;justify-content:center">'+comboIcon()+'</div>'
       +   '<div style="flex:1;min-width:0">'
@@ -471,6 +489,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +   '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:#00853C;display:inline-block"></span>符合 '+count+' 站</div>'
       +   '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:#DCDBD6;display:inline-block"></span>其餘 '+(total-count)+' 站</div>'
       + '</div>'
+      + stationPills(matchList, '符合場站')
       + '</div>';
   }
 
@@ -1329,6 +1348,33 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(to && c.contains(to)) return;
     hideTip();
   });
+  // ---- coverage-card ⇄ station-chip cross-highlight ----
+  // hovering a coverage card outlines its stations' chips in the right panel.
+  function highlightCard(card, on){
+    if(!card) return;
+    card.style.borderColor = on ? '#EE7623' : '#E4EBE6';
+    card.style.boxShadow = on ? '0 2px 10px rgba(238,118,35,.18)' : 'none';
+    var ids = (card.getAttribute('data-cardids')||'').split(',').filter(Boolean);
+    ids.forEach(function(id){
+      var chip = app.querySelector('.chip[data-tip="'+id+'"]');
+      if(!chip) return;
+      chip.style.outline = on ? '3px solid #EE7623' : '';
+      chip.style.outlineOffset = on ? '2px' : '';
+      chip.style.zIndex = on ? '6' : '';
+    });
+  }
+  app.addEventListener('mouseover', function(e){
+    var card = e.target.closest ? e.target.closest('.covcard[data-cardids]') : null;
+    if(card) highlightCard(card, true);
+  });
+  app.addEventListener('mouseout', function(e){
+    var card = e.target.closest ? e.target.closest('.covcard[data-cardids]') : null;
+    if(!card) return;
+    var to = e.relatedTarget;
+    if(to && card.contains(to)) return;   // still inside the same card
+    highlightCard(card, false);
+  });
+
   document.addEventListener('keydown', function(e){
     if(e.key==='Escape' && state.selectedId!=null) closePanel();
   });
