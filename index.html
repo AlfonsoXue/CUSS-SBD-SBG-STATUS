@@ -171,7 +171,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
                 showKpiRing: true, showNames: false, dotScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
                 comboSel: [], comboOpen: false,
-                chipFont: 15, legendFont: 11, legendSwatchOnly: false,
+                chipFont: 15, legendFont: 11, legendShowShape: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
                 pickerOpen: false };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
@@ -551,7 +551,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var kpiDot = s.kpi ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C;pointer-events:none"></span>' : '';
     var bagIcon = s.bagTag ? bagTagIcon() : '';
     var ring = s.id===state.selectedId ? '#00853C' : '#FFFFFF';
-    var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85;pointer-events:none">'+esc(s.cussVendor)+'</span>' : '';
+    var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:calc(var(--chip-font,15px) * 0.53);font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85;pointer-events:none">'+esc(s.cussVendor)+'</span>' : '';
     return '<div class="chip" data-tip="'+s.id+'" style="position:relative;width:78px;height:48px;border-radius:7px;overflow:hidden;border:1.5px solid '+ring+';cursor:pointer;box-shadow:0 1px 2px rgba(20,40,30,.14)">'
       + '<div data-action="chipTop" data-id="'+s.id+'" style="height:35px;background:'+STATUS[s.cuss].color+';display:flex;align-items:center;justify-content:center;color:'+STATUS[s.cuss].textOn+';font-family:system-ui,sans-serif;font-weight:700;font-size:var(--chip-font,15px);letter-spacing:.5px;line-height:1">'+esc(s.code)+'</div>'
       + vt
@@ -1166,12 +1166,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var quickFg = state.quickMode ? '#fff' : '#00853C';
     var quickState = state.quickMode ? '：開' : '：關';
 
-    var swatchOnly = !!state.legendSwatchOnly;
+    // legend: colour block + text always shown; the mark 圖形 (●▲△○✕) toggles.
+    // swatch size uses em so it scales with the legend font.
+    var showShape = state.legendShowShape !== false;
     var legendMaster = ORDER.map(function(k){
-      var sw = '<span style="flex:none;width:10px;height:10px;border-radius:2px;background:'+STATUS[k].color+'"></span>';
-      var txt = swatchOnly ? STATUS[k].mark : (STATUS[k].mark+' '+STATUS[k].label);
+      var sw = '<span style="flex:none;width:.9em;height:.9em;border-radius:2px;background:'+STATUS[k].color+'"></span>';
+      var txt = (showShape ? STATUS[k].mark+' ' : '') + STATUS[k].label;
       return '<span title="'+esc(STATUS[k].label)+'" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B">'+sw+txt+'</span>';
-    }).join('') + '<span title="2026 經理人 KPI 場站" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B"><span style="flex:none;width:10px;height:10px;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>'+(swatchOnly ? '' : '2026 經理人 KPI 場站')+'</span>';
+    }).join('') + '<span title="2026 經理人 KPI 場站" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B"><span style="flex:none;width:.9em;height:.9em;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>2026 經理人 KPI 場站</span>';
 
     var sel = find(state.selectedId);
     var groupTitle = state.groupMode==='region' ? '區域 × 現況交叉檢視' : 'CUSS 建置上線時程軸 × 現況交叉檢視';
@@ -1199,7 +1201,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<input type="range" data-legendfont min="8" max="20" step="1" value="'+state.legendFont+'" style="width:96px;accent-color:#00853C;cursor:pointer">'
       +     '<span data-legendfontlbl style="font-size:11px;color:#8A938F;min-width:30px">'+state.legendFont+'px</span>'
       +   '</label>'
-      +   '<button data-action="toggleLegendSwatch" style="border:1.5px solid #00853C;background:'+(swatchOnly?'#00853C':'#fff')+';color:'+(swatchOnly?'#fff':'#00853C')+';border-radius:14px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">圖例僅顯示色塊／圖形：'+(swatchOnly?'開':'關')+'</button>'
+      +   '<button data-action="toggleLegendSwatch" style="border:1.5px solid #00853C;background:'+(showShape?'#00853C':'#fff')+';color:'+(showShape?'#fff':'#00853C')+';border-radius:14px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">圖例圖形（實心圓／三角）：'+(showShape?'顯示':'隱藏')+'</button>'
       + '</div>';
     var boardBody =
       '<div id="cuss-board" style="--chip-font:'+state.chipFont+'px;--legend-font:'+state.legendFont+'px;background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
@@ -1307,7 +1309,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'closeComboMenu': closeComboMenu(); break;
       case 'toggleCombo': toggleCombo(t.getAttribute('data-combo')); break;
       case 'clearCombo': clearCombo(); break;
-      case 'toggleLegendSwatch': state.legendSwatchOnly = !state.legendSwatchOnly; render(); break;
+      case 'toggleLegendSwatch': state.legendShowShape = !(state.legendShowShape !== false); render(); break;
       case 'togglePicker': togglePicker(); break;
       case 'toggleExclude': toggleExclude(id); break;
       case 'pickAll': setAllExcluded(false); break;
