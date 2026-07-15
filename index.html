@@ -329,7 +329,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   // ---- scoring for map & matrix ----
   var STATUS_WEIGHT = { online:1, paused:0.55, building:0.45, evaluating:0.2, none:0 };
-  function automationScore(s){ return (STATUS_WEIGHT[s.cuss] + STATUS_WEIGHT[s.sbd] + STATUS_WEIGHT[s.sbg]) / 3; }
+  // CUSS/SBD weighted higher than SBG (sums to 1 so the score stays 0–1)
+  var STAGE_WEIGHT = { cuss:0.45, sbd:0.45, sbg:0.10 };
+  function automationScore(s){
+    return STATUS_WEIGHT[s.cuss]*STAGE_WEIGHT.cuss + STATUS_WEIGHT[s.sbd]*STAGE_WEIGHT.sbd + STATUS_WEIGHT[s.sbg]*STAGE_WEIGHT.sbg;
+  }
   // log-scale volume normalized to the pax range of a given station set (so the
   // matrix axis rescales to whatever is currently visible/filtered).
   function paxRange(list){
@@ -565,7 +569,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +         '<label style="flex:1;display:flex;flex-direction:column;gap:4px"><span style="font-size:10.5px;color:#8A938F">航班量（週）</span><input type="number" min="0" data-input="flights" data-id="'+sel.id+'" value="'+esc(sel.flights)+'" class="fld" style="padding:7px 9px;font-size:13px" /></label>'
       +         '<label style="flex:1;display:flex;flex-direction:column;gap:4px"><span style="font-size:10.5px;color:#8A938F">旅客量（週）</span><input type="number" min="0" data-input="pax" data-id="'+sel.id+'" value="'+esc(sel.pax)+'" class="fld" style="padding:7px 9px;font-size:13px" /></label>'
       +       '</div>'
-      +       '<div style="font-size:10.5px;color:#8A938F">自動化完備度 '+Math.round(automationScore(sel)*100)+'%（CUSS／SBD／SBG 加權）</div>'
+      +       '<div style="font-size:10.5px;color:#8A938F">自動化完備度 '+Math.round(automationScore(sel)*100)+'%（CUSS／SBD 權重高於 SBG）</div>'
       +     '</div>'
       +     '<label style="display:flex;flex-direction:column;gap:5px">'
       +       '<span style="font-size:11px;font-weight:700;color:#515A5D">各站進度（自動化綜整）</span>'
