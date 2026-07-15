@@ -446,8 +446,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var segs = st.segs.map(function(sg){
       return '<div style="width:'+sg.w+'%;background:'+sg.color+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:'+sg.textOn+'">'+esc(sg.label)+'</div>';
     }).join('');
+    // the master 圖例圖形 switch also drives the mark glyph here
+    var showShape = state.legendShowShape !== false;
     var legend = st.legend.map(function(lg){
-      return '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:'+lg.color+';display:inline-block"></span>'+lg.mark+' '+esc(lg.text)+' '+esc(lg.label)+'</div>';
+      return '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6E787B"><span style="width:9px;height:9px;border-radius:2px;background:'+lg.color+';display:inline-block"></span>'+(showShape ? lg.mark+' ' : '')+esc(lg.text)+' '+esc(lg.label)+'</div>';
     }).join('');
     return '<div class="covcard" '+cardIdsAttr(st.onlineList)+' style="background:#fff;border-radius:11px;padding:16px 18px;border:1px solid #E4EBE6;transition:border-color .12s,box-shadow .12s">'
       + '<div style="display:flex;align-items:flex-start;gap:12px">'
