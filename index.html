@@ -787,12 +787,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
 
   // ---- matrix ----
-  function quadIcon(kind, color){
-    var s = 'fill="none" stroke="'+color+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
-    if(kind==='bars') return '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" '+s+'/></svg>';
-    if(kind==='star') return '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-2.9L6.7 19.6l1.1-6L3.4 9.4l6-.8z" fill="'+color+'" stroke="'+color+'" stroke-width="1"/></svg>';
-    if(kind==='warn') return '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l9 16H3zM12 10v4M12 17.5v.5" '+s+'/></svg>';
-    if(kind==='refresh') return '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" '+s+'/></svg>';
+  function quadIcon(kind, color, size, sw){
+    size = size || 18;
+    var s = 'fill="none" stroke="'+color+'" stroke-width="'+(sw||1.8)+'" stroke-linecap="round" stroke-linejoin="round"';
+    var o = '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24">';
+    if(kind==='bars') return o+'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2" '+s+'/></svg>';
+    if(kind==='star') return o+'<path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-2.9L6.7 19.6l1.1-6L3.4 9.4l6-.8z" fill="'+color+'" stroke="'+color+'" stroke-width="1"/></svg>';
+    if(kind==='warn') return o+'<path d="M12 3l9 16H3zM12 10v4M12 17.5v.5" '+s+'/></svg>';
+    if(kind==='refresh') return o+'<path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" '+s+'/></svg>';
     return '';
   }
   function quadCard(q){
@@ -854,29 +856,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         + 'style="position:absolute;left:'+m.left.toFixed(2)+'%;top:'+m.top.toFixed(2)+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+bg+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
     }).join('');
 
-    // place each quadrant icon in the least-crowded corner of its cell
-    var cells = {
-      matureLow:{x0:6,y0:6,x1:49,y1:49}, priority:{x0:51,y0:6,x1:94,y1:49},
-      limited:{x0:6,y0:51,x1:49,y1:94}, progress:{x0:51,y0:51,x1:94,y1:94}
-    };
-    function pickIconPos(cell){
-      var p=6, cands=[
-        {x:cell.x0+p,y:cell.y0+p},{x:cell.x1-p,y:cell.y0+p},
-        {x:cell.x0+p,y:cell.y1-p},{x:cell.x1-p,y:cell.y1-p}
-      ];
-      var best=cands[0], bestScore=Infinity;
-      cands.forEach(function(c){
-        var n=0;
-        pts.forEach(function(d){ var dx=d.left-c.x, dy=d.top-c.y; if(dx*dx+dy*dy < 14*14) n++; });
-        var outer = Math.abs(c.x-50)+Math.abs(c.y-50);
-        var score = n - outer*0.001;   // fewest dots first; prefer outer corner on ties
-        if(score<bestScore){ bestScore=score; best=c; }
-      });
-      return best;
-    }
-    var iconLayer = ['matureLow','priority','limited','progress'].map(function(key){
-      var q=QUAD[key], pos=pickIconPos(cells[key]);
-      return '<div style="position:absolute;left:'+pos.x+'%;top:'+pos.y+'%;transform:translate(-50%,-50%);pointer-events:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.78);border-radius:8px">'+quadIcon(q.icon,q.color)+'</div>';
+    // large faint watermark icon centred in each quadrant (behind the dots)
+    var wmCenter = { matureLow:[27,27], priority:[73,27], limited:[27,73], progress:[73,73] };
+    var watermark = ['matureLow','priority','limited','progress'].map(function(key){
+      var q=QUAD[key], c=wmCenter[key];
+      return '<div style="position:absolute;left:'+c[0]+'%;top:'+c[1]+'%;transform:translate(-50%,-50%);opacity:.14;pointer-events:none">'+quadIcon(q.icon,q.color,122,1.55)+'</div>';
     }).join('');
 
     return '<section id="matrix-export" style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
@@ -897,10 +881,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +         quadCard(QUAD.matureLow) + quadCard(QUAD.priority)
       +         quadCard(QUAD.limited) + quadCard(QUAD.progress)
       +       '</div>'
+      +       watermark
       +       '<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#DDE4E0"></div>'
       +       '<div style="position:absolute;top:50%;left:0;right:0;height:1px;background:#DDE4E0"></div>'
       +       dots
-      +       iconLayer
       +     '</div>'
       +     '<div style="display:flex;justify-content:space-between;font-size:11px;color:#8A938F;margin-top:6px;padding:0 4px"><span>低</span><span style="font-weight:700;color:#515A5D;letter-spacing:1px">旅客量 / 航班量　→</span><span>高</span></div>'
       +   '</div>'
