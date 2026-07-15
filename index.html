@@ -158,8 +158,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
+                showKpiRing: true, dotScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
                 pickerOpen: false };
+  var BASE_VB = { x:0, y:12, w:1000, h:408 };
+  var VB_RATIO = BASE_VB.h / BASE_VB.w;
 
   function stationMatch(s){
     var f = state.filters;
@@ -198,6 +201,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setMapTheme(t){ state.mapTheme = t; render(); }
   function setMapPalette(p){ state.mapPalette = p; render(); }
   function setDotColor(d){ state.dotColor = d; render(); }
+  function setKpiRing(on){ state.showKpiRing = on; render(); }
+  function zoomMap(k){
+    var vb = state.mapVB;
+    var cx = vb.x + vb.w/2, cy = vb.y + vb.h/2;
+    var nw = Math.max(120, Math.min(1600, vb.w*k));
+    var nh = nw*VB_RATIO;
+    state.mapVB = { x:cx - nw/2, y:cy - nh/2, w:nw, h:nh };
+    render();
+  }
+  function resetMapView(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; render(); }
+  function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
   function setFilter(k, v){ state.filters[k] = v; render(); }
   function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
@@ -561,12 +575,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     return STATUS[s.cuss].color; // cuss status
   }
-  function dotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
+  function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
   function mapSVGHTML(){
     var visible = filteredStations();
     var ocean = state.mapTheme==='dark' ? '#161E22' : '#EAF1F4';
     var stroke = state.mapTheme==='dark' ? '#0E1417' : '#FFFFFF';
+    var dotStroke = state.mapTheme==='dark' ? '#0E1417' : '#fff';
+    var sc = state.dotScale;
     var land = MAPCONT.map(function(c){
       return '<path d="'+c.p+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
     }).join('');
@@ -575,17 +591,19 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     ss.sort(function(a,b){ return (a.pax||0)-(b.pax||0); });
     var dots = ss.map(function(s){
       var g = GEO[s.code]; if(!g) return '';
-      var p = mproj(g.lat, g.lon);
-      var r = dotRadius(s);
-      var selRing = s.id===state.selectedId ? '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="'+(r+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>' : '';
-      var kpiRing = s.kpi ? '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="'+(r+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>' : '';
+      var p = mproj(g.lat, g.lon), cx = p.x.toFixed(1), cy = p.y.toFixed(1);
+      var b = baseDotRadius(s);
+      // data-baser = unscaled radius; rendered r = baser * dotScale (for live resize)
+      var selRing = s.id===state.selectedId ? '<circle cx="'+cx+'" cy="'+cy+'" data-baser="'+(b+3.5).toFixed(2)+'" r="'+((b+3.5)*sc).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>' : '';
+      var kpiRing = (s.kpi && state.showKpiRing) ? '<circle cx="'+cx+'" cy="'+cy+'" data-baser="'+(b+2).toFixed(2)+'" r="'+((b+2)*sc).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>' : '';
       return '<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'
         + selRing
-        + '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="'+r.toFixed(1)+'" fill="'+dotFill(s)+'" fill-opacity="0.9" stroke="'+(state.mapTheme==='dark'?'#0E1417':'#fff')+'" stroke-width="0.9"/>'
+        + '<circle cx="'+cx+'" cy="'+cy+'" data-baser="'+b.toFixed(2)+'" r="'+(b*sc).toFixed(1)+'" fill="'+dotFill(s)+'" fill-opacity="0.9" stroke="'+dotStroke+'" stroke-width="0.9"/>'
         + kpiRing
         + '</g>';
     }).join('');
-    return '<svg viewBox="0 12 1000 408" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px" xmlns="http://www.w3.org/2000/svg">'
+    var vb = state.mapVB;
+    return '<svg id="worldmap" viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:none;cursor:grab" xmlns="http://www.w3.org/2000/svg">'
       + land + dots + '</svg>';
   }
 
@@ -607,11 +625,24 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">深淺</span>'+pill('mapTheme','data-theme','light',state.mapTheme,'淺色')+pill('mapTheme','data-theme','dark',state.mapTheme,'深色')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">區域配色</span>'+pill('mapPalette','data-pal','region',state.mapPalette,'彩色分區')+pill('mapPalette','data-pal','mono',state.mapPalette,'灰階')+pill('mapPalette','data-pal','brand',state.mapPalette,'品牌綠')+pill('mapPalette','data-pal','coverage',state.mapPalette,'依覆蓋率')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓點著色</span>'+pill('dotColor','data-dc','cuss',state.dotColor,'CUSS 現況')+pill('dotColor','data-dc','region',state.dotColor,'所屬區域')+'</div>'
+      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">KPI 白框</span>'+pill('kpiRing','data-kr','on',state.showKpiRing?'on':'off','顯示')+pill('kpiRing','data-kr','off',state.showKpiRing?'on':'off','隱藏')+'</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;margin:0 0 10px;padding:9px 12px;background:#F5F7F7;border-radius:10px">'
+      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">縮放</span>'
+      +     '<button data-action="zoomMap" data-k="0.8" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="1.25" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:18px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">重置視圖</button>'
+      +   '</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓圈大小</span>'
+      +     '<input type="range" min="0.4" max="2.6" step="0.1" value="'+state.dotScale+'" data-dotsize style="width:120px;accent-color:#00853C;cursor:pointer" />'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:34px">'+Math.round(state.dotScale*100)+'%</span>'
+      +   '</div>'
+      +   '<span style="font-size:11px;color:#8A938F">可直接在地圖上拖曳移動、滾輪縮放</span>'
       + '</div>'
       + mapSVGHTML()
       + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid #E4EBE6">'
       +   '<span style="font-size:11px;font-weight:700;color:#6E787B">圖例</span>'+legendItems
-      +   '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:12px;height:12px;border-radius:50%;background:#C7CDCF;border:1.4px solid #fff;box-shadow:0 0 0 1px #C7CDCF"></span>白框＝KPI</span>'
+      +   (state.showKpiRing ? '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:12px;height:12px;border-radius:50%;background:#C7CDCF;border:1.4px solid #fff;box-shadow:0 0 0 1px #C7CDCF"></span>白框＝KPI</span>' : '')
       + '</div>'
       + '</section>';
   }
@@ -641,7 +672,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var left = Math.max(4, Math.min(96, 6 + x*88 + jx)).toFixed(2);
       var top = Math.max(4, Math.min(96, 6 + (1-y)*88 + jy)).toFixed(2);
       var r = 12;
-      var ring = s.kpi ? 'box-shadow:0 0 0 2px #fff,0 0 0 3.5px '+STATUS[s.cuss].color : '0 1px 2px rgba(0,0,0,.2)';
+      var ring = (s.kpi && state.showKpiRing) ? 'box-shadow:0 0 0 2px #fff,0 0 0 3.5px '+STATUS[s.cuss].color : '0 1px 2px rgba(0,0,0,.2)';
       var selO = s.id===state.selectedId ? ';outline:2px solid #00853C;outline-offset:1px' : '';
       return '<div data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" title="'+esc(s.code)+'" '
         + 'style="position:absolute;left:'+left+'%;top:'+top+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+STATUS[s.cuss].color+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
@@ -796,7 +827,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var body = state.view==='board' ? boardBody : mapBodyHTML();
     var hint = state.view==='board'
       ? '提示：<b style="color:#00853C">游標移至方塊</b>可顯示完整資訊（現況／系統商／時程／各站進度）；點方塊開啟右側編輯面板。開啟「快速切換模式」後，點方塊<b style="color:#00853C">上半</b>循環切換 CUSS、點<b style="color:#00853C">下半</b>切換 SBD。'
-      : '提示：地圖圓點＝場站，<b style="color:#00853C">大小＝旅客量</b>、顏色＝現況；可切換<b style="color:#00853C">深淺色</b>與<b style="color:#00853C">區域配色</b>。右側矩陣依自動化完備度與旅客量／航班量分類。游標移至圓點顯示詳情、點擊開啟編輯面板。';
+      : '提示：地圖可<b style="color:#00853C">拖曳移動、滾輪縮放</b>，並可調整<b style="color:#00853C">圓圈大小</b>與 KPI 白框顯示。圓點大小＝旅客量、顏色＝現況；游標移至圓點顯示詳情、點擊開啟編輯面板。右側矩陣依自動化完備度與旅客量／航班量分類。';
 
     var html =
       '<div style="min-height:100vh;display:flex;flex-direction:column">'
@@ -858,6 +889,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   // ---- event delegation ----
   var app = document.getElementById('app');
+  var mapDrag = null, mapPanned = false;
   app.addEventListener('click', function(e){
     var t = e.target.closest ? e.target.closest('[data-action]') : null;
     if(!t) return;
@@ -882,7 +914,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'mapTheme': setMapTheme(t.getAttribute('data-theme')); break;
       case 'mapPalette': setMapPalette(t.getAttribute('data-pal')); break;
       case 'dotColor': setDotColor(t.getAttribute('data-dc')); break;
-      case 'select': select(id); break;
+      case 'kpiRing': setKpiRing(t.getAttribute('data-kr')==='on'); break;
+      case 'zoomMap': zoomMap(+t.getAttribute('data-k')); break;
+      case 'resetMapView': resetMapView(); break;
+      case 'select': if(mapPanned){ mapPanned=false; break; } select(id); break;
       case 'toggleKpi': var s=find(id); if(s) setField(id,'kpi',!s.kpi); break;
       case 'setField': setField(id, t.getAttribute('data-field'), t.getAttribute('data-val')); break;
       case 'chipTop':
@@ -924,6 +959,57 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   document.addEventListener('keydown', function(e){
     if(e.key==='Escape' && state.selectedId!=null) closePanel();
   });
+
+  // ---- dot size slider (live, no full re-render) ----
+  app.addEventListener('input', function(e){
+    var t = e.target;
+    if(!t.getAttribute || t.getAttribute('data-dotsize')===null) return;
+    var sc = +t.value; state.dotScale = sc;
+    var svg = document.getElementById('worldmap');
+    if(svg){
+      var cs = svg.querySelectorAll('circle[data-baser]');
+      for(var i=0;i<cs.length;i++){ cs[i].setAttribute('r', (parseFloat(cs[i].getAttribute('data-baser'))*sc).toFixed(1)); }
+    }
+    var lbl = t.parentElement && t.parentElement.querySelector('span:last-child');
+    if(lbl) lbl.textContent = Math.round(sc*100)+'%';
+  });
+
+  // ---- map pan (drag) & zoom (wheel) ----
+  document.addEventListener('pointerdown', function(e){
+    var svg = e.target.closest ? e.target.closest('#worldmap') : null;
+    if(!svg) return;
+    var rect = svg.getBoundingClientRect();
+    mapDrag = { sx:e.clientX, sy:e.clientY, vb:{x:state.mapVB.x,y:state.mapVB.y,w:state.mapVB.w,h:state.mapVB.h}, rect:rect, moved:0 };
+    mapPanned = false;
+    svg.style.cursor = 'grabbing';
+  });
+  document.addEventListener('pointermove', function(e){
+    if(!mapDrag) return;
+    var dx = e.clientX-mapDrag.sx, dy = e.clientY-mapDrag.sy;
+    mapDrag.moved = Math.max(mapDrag.moved, Math.abs(dx)+Math.abs(dy));
+    var vb = mapDrag.vb, rect = mapDrag.rect;
+    state.mapVB = { x: vb.x - dx/rect.width*vb.w, y: vb.y - dy/rect.height*vb.h, w: vb.w, h: vb.h };
+    applyMapVB();
+  });
+  document.addEventListener('pointerup', function(){
+    if(!mapDrag) return;
+    if(mapDrag.moved > 4) mapPanned = true;
+    var svg = document.getElementById('worldmap'); if(svg) svg.style.cursor = 'grab';
+    mapDrag = null;
+  });
+  document.addEventListener('wheel', function(e){
+    var svg = e.target.closest ? e.target.closest('#worldmap') : null;
+    if(!svg) return;
+    e.preventDefault();
+    var rect = svg.getBoundingClientRect(), vb = state.mapVB;
+    var fx = (e.clientX-rect.left)/rect.width, fy = (e.clientY-rect.top)/rect.height;
+    var px = vb.x + fx*vb.w, py = vb.y + fy*vb.h;
+    var k = e.deltaY < 0 ? 1/1.15 : 1.15;
+    var nw = Math.max(120, Math.min(1600, vb.w*k));
+    var nh = nw * VB_RATIO;
+    state.mapVB = { x: px - fx*nw, y: py - fy*nh, w: nw, h: nh };
+    applyMapVB();
+  }, { passive:false });
 
   render();
 })();
