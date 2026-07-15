@@ -1013,8 +1013,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var sel = find(state.selectedId);
     var groupTitle = state.groupMode==='region' ? '區域 × 現況交叉檢視' : 'CUSS 建置上線時程軸 × 現況交叉檢視';
     var groupSub = state.groupMode==='region'
-      ? '依所屬區域分組，區域內方塊依建置時程（早→晚）排序；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站'
-      : '依建置時程分組；色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝2026 經理人 KPI 場站';
+      ? '依所屬區域分組。<b style="color:#515A5D">方塊由左至右＝建置時程日期由近至遠</b>（2025前 → 未排程），同時程再依完備度排序。色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝KPI 場站'
+      : '依建置時程分組。<b style="color:#515A5D">方塊由左至右＝自動化完備度越高越靠左</b>（優先序：① 三階段完備＋可列印行李條 › ② CUSS+SBD 完備＋可列印行李條 › ③ 三階段完備 › ④ CUSS/SBD 完備 › ⑤ 其餘依完備度）。色塊上緣＝CUSS 現況、下緣＝SBD 現況　·　白色圓點＝KPI 場站';
 
     var viewSwitch = '<div style="display:flex;background:#EEF2F0;border-radius:16px;padding:3px">'+viewBtn('board','時程儀表板')+viewBtn('map','地圖 · 定位矩陣')+'</div>';
     var quickBtn = state.view==='board'
