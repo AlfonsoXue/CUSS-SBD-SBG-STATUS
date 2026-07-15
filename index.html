@@ -1307,10 +1307,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
     var nShown = filteredStations().length, nTot = state.stations.length;
     return '<section id="map-export" style="--map-legend-font:'+state.mapLegendFont+'px;flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
-      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">'
       +   '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div style="font-size:16px;font-weight:900;color:#00853C">全球場站分布圖</div>'
       +   '<div style="font-size:11px;color:#6E787B">顯示 '+nShown+' / '+nTot+' 站</div></div>'
-      +   '<button data-action="exportPNG" data-target="map-export" data-file="全球場站分布圖.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出地圖圖片</button>'
+      +   '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      +     mapMoveControls()
+      +     '<button data-action="exportPNG" data-target="map-export" data-file="全球場站分布圖.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出地圖圖片</button>'
+      +   '</div>'
       + '</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 10px;padding:10px 12px;background:#F5F7F7;border-radius:10px">'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">深淺</span>'+pill('mapTheme','data-theme','light',state.mapTheme,'淺色')+pill('mapTheme','data-theme','dark',state.mapTheme,'深色')+'</div>'
@@ -1448,9 +1451,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</label>';
   }
   // map view / zoom / dot-size / station-name-size controls — placed in the
-  // blank space to the right of the filter row.
+  // shown in the map panel header (next to 匯出地圖圖片)
   function mapMoveControls(){
-    return '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:10px;margin-left:auto;flex:none">'
+    return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
       +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">縮放</span>'
       +     '<button data-action="zoomMap" data-k="0.8" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
       +     '<button data-action="zoomMap" data-k="1.25" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
@@ -1486,7 +1489,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + filterSelect('kpi','經理人 KPI',kpiOpts)
       + pickerBtn
       + clearBtn
-      + mapMoveControls()
       + '</div>';
   }
   function pickerHTML(){
