@@ -348,7 +348,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // quadrants keyed by (hiVol, hiAuto)
   var QUAD = {
     matureLow:  { name:'成熟場站',   color:'#00853C', tint:'#EAF3EE', desc:'設備完整，可作為服務 2.0 示範站', icon:'bars' },
-    priority:   { name:'高優先場站', color:'#EE7623', tint:'#FCEEE2', desc:'航班量大、旅客量大、櫃台壓力高，應優先推動', icon:'star' },
+    priority:   { name:'重點場站', color:'#EE7623', tint:'#FCEEE2', desc:'航班量大、旅客量大、櫃台壓力高，將持續最佳化旅客流程', icon:'star' },
     limited:    { name:'限制型場站', color:'#C79A2E', tint:'#F7F1E0', desc:'受限機場設施、空間或 GHA 作業模式', icon:'warn' },
     progress:   { name:'進行中場站', color:'#3F9E86', tint:'#E6F1EE', desc:'已有部分自助功能，仍需補足行李、證件或付款流程', icon:'refresh' }
   };
@@ -748,12 +748,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(kind==='refresh') return '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" '+s+'/></svg>';
     return '';
   }
-  function quadCard(q, alignRight){
-    // icon only inside the cell (labels/descriptions moved to the legend below,
-    // so station dots never cover the text)
-    return '<div style="position:relative;background:'+q.tint+';border-radius:10px;overflow:hidden">'
-      + '<div style="position:absolute;top:8px;'+(alignRight?'right:10px':'left:10px')+';opacity:.85">'+quadIcon(q.icon,q.color)+'</div>'
-      + '</div>';
+  function quadCard(q){
+    // just the tinted background; the icon is placed separately in the least
+    // crowded corner so station dots don't cover it
+    return '<div style="background:'+q.tint+';border-radius:10px"></div>';
   }
   function quadLegendHTML(){
     var items = [QUAD.matureLow, QUAD.priority, QUAD.limited, QUAD.progress];
@@ -770,40 +768,69 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function matrixHTML(){
     var visible = filteredStations();
     var range = paxRange(visible);   // rescale X axis to the currently-visible stations
+    var pts = [];
     var dots = visible.map(function(s){
       var x = volumeScoreIn(s, range), y = automationScore(s);
       var jx = (((s.id*37)%100)/100 - 0.5) * 7;
       var jy = (((s.id*61)%100)/100 - 0.5) * 7;
-      var left = Math.max(4, Math.min(96, 6 + x*88 + jx)).toFixed(2);
-      var top = Math.max(4, Math.min(96, 6 + (1-y)*88 + jy)).toFixed(2);
-      var r = 12;
+      var left = Math.max(4, Math.min(96, 6 + x*88 + jx));
+      var top = Math.max(4, Math.min(96, 6 + (1-y)*88 + jy));
+      pts.push({ left:left, top:top });
+      var r = 12, cf = 60;   // dot split: CUSS top 60%, SBD bottom 40%
+      var bg = 'linear-gradient(to bottom,'+STATUS[s.cuss].color+' 0,'+STATUS[s.cuss].color+' '+cf+'%,'+STATUS[s.sbd].color+' '+cf+'%,'+STATUS[s.sbd].color+' 100%)';
       var ring = (s.kpi && state.showKpiRing) ? 'box-shadow:0 0 0 2px #fff,0 0 0 3.5px '+STATUS[s.cuss].color : '0 1px 2px rgba(0,0,0,.2)';
       var selO = s.id===state.selectedId ? ';outline:2px solid #00853C;outline-offset:1px' : '';
       return '<div data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" title="'+esc(s.code)+'" '
-        + 'style="position:absolute;left:'+left+'%;top:'+top+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+STATUS[s.cuss].color+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
+        + 'style="position:absolute;left:'+left.toFixed(2)+'%;top:'+top.toFixed(2)+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+bg+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
+    }).join('');
+
+    // place each quadrant icon in the least-crowded corner of its cell
+    var cells = {
+      matureLow:{x0:6,y0:6,x1:49,y1:49}, priority:{x0:51,y0:6,x1:94,y1:49},
+      limited:{x0:6,y0:51,x1:49,y1:94}, progress:{x0:51,y0:51,x1:94,y1:94}
+    };
+    function pickIconPos(cell){
+      var p=6, cands=[
+        {x:cell.x0+p,y:cell.y0+p},{x:cell.x1-p,y:cell.y0+p},
+        {x:cell.x0+p,y:cell.y1-p},{x:cell.x1-p,y:cell.y1-p}
+      ];
+      var best=cands[0], bestScore=Infinity;
+      cands.forEach(function(c){
+        var n=0;
+        pts.forEach(function(d){ var dx=d.left-c.x, dy=d.top-c.y; if(dx*dx+dy*dy < 14*14) n++; });
+        var outer = Math.abs(c.x-50)+Math.abs(c.y-50);
+        var score = n - outer*0.001;   // fewest dots first; prefer outer corner on ties
+        if(score<bestScore){ bestScore=score; best=c; }
+      });
+      return best;
+    }
+    var iconLayer = ['matureLow','priority','limited','progress'].map(function(key){
+      var q=QUAD[key], pos=pickIconPos(cells[key]);
+      return '<div style="position:absolute;left:'+pos.x+'%;top:'+pos.y+'%;transform:translate(-50%,-50%);pointer-events:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.78);border-radius:8px">'+quadIcon(q.icon,q.color)+'</div>';
     }).join('');
 
     return '<section id="matrix-export" style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
       +   '<div><div style="font-size:16px;font-weight:900;color:#141819">場站策略定位矩陣</div>'
-      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點顏色＝CUSS 現況、白圈＝KPI　·　顯示 '+visible.length+' 站</div></div>'
+      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點上半＝CUSS／下半＝SBD、白圈＝KPI　·　顯示 '+visible.length+' 站</div></div>'
       +   '<button data-action="exportPNG" data-target="matrix-export" data-file="場站定位矩陣.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出矩陣圖片</button>'
       + '</div>'
       + '<div style="display:flex;gap:8px;margin-top:14px;flex:1;min-height:430px">'
       +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:20px">'
       +     '<span style="font-size:11px;color:#8A938F">高</span>'
-      +     '<span style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:700;color:#515A5D;margin:8px 0;letter-spacing:2px">自動化完備度</span>'
+      +     '<span style="writing-mode:vertical-rl;font-size:12px;font-weight:700;color:#515A5D;margin:8px 0;letter-spacing:2px">自動化完備度</span>'
       +     '<span style="font-size:11px;color:#8A938F">低</span>'
       +   '</div>'
       +   '<div style="flex:1;display:flex;flex-direction:column">'
       +     '<div style="position:relative;flex:1;border:1px solid #E4EBE6;border-radius:12px;overflow:hidden">'
       +       '<div style="position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;padding:8px">'
-      +         quadCard(QUAD.matureLow,false) + quadCard(QUAD.priority,true)
-      +         quadCard(QUAD.limited,false) + quadCard(QUAD.progress,true)
+      +         quadCard(QUAD.matureLow) + quadCard(QUAD.priority)
+      +         quadCard(QUAD.limited) + quadCard(QUAD.progress)
       +       '</div>'
       +       '<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#DDE4E0"></div>'
       +       '<div style="position:absolute;top:50%;left:0;right:0;height:1px;background:#DDE4E0"></div>'
       +       dots
+      +       iconLayer
       +     '</div>'
       +     '<div style="display:flex;justify-content:space-between;font-size:11px;color:#8A938F;margin-top:6px;padding:0 4px"><span>低</span><span style="font-weight:700;color:#515A5D;letter-spacing:1px">旅客量 / 航班量　→</span><span>高</span></div>'
       +   '</div>'
