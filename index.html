@@ -734,14 +734,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var body;
       if(twoTone){
         var cid = 'dc'+s.id;
-        var xL = (cx-R).toFixed(1), yT = (cy-R).toFixed(1), W = (2*R).toFixed(1);
+        var xL = (cx-R).toFixed(1), yT = (cy-R).toFixed(1), W = (2*R).toFixed(1), FULL = (2*R).toFixed(1);
+        // full SBD base, then CUSS overlay on top — avoids the antialiased seam
+        // a pair of adjacent rects would leave at the split
         var topH = (2*R*cussFrac).toFixed(1);
-        var botY = (cy - R + 2*R*cussFrac).toFixed(1);
-        var botH = (2*R*(1-cussFrac)).toFixed(1);
         defs += '<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
         body = '<g clip-path="url(#'+cid+')">'
+          + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/>'
           + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/>'
-          + '<rect x="'+xL+'" y="'+botY+'" width="'+W+'" height="'+botH+'" fill="'+STATUS[s.sbd].color+'"/>'
           + '</g>'
           + '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="0.9"/>';
       } else {
