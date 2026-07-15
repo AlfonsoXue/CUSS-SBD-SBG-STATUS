@@ -187,6 +187,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
                 pickerOpen: false, logOpen: false };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
   var VB_RATIO = BASE_VB.h / BASE_VB.w;
+  // baseline = the data as loaded when this file was opened (before any edits);
+  // "重設" restores to THIS, not to the original seed database.
+  function cloneStations(list){ return list.map(function(s){ var o={}; for(var k in s) o[k]=s[k]; return o; }); }
+  var BASELINE = cloneStations(state.stations);
 
   function stationMatch(s){
     var f = state.filters;
@@ -298,11 +302,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     logEvent('刪除場站（'+(gone?gone.code:id)+'）'); render();
   }
   function resetData(){
-    if(!window.confirm('確定要還原為原始資料庫嗎？目前的編輯將會清除。')) return;
-    nid = 1;
-    var stations = seed();
+    if(!window.confirm('確定要重設嗎？將還原為「本次開啟檔案時、尚未更新前」的狀態，目前的編輯將被清除。')) return;
+    var stations = cloneStations(BASELINE);
+    nid = stations.reduce(function(m,s){ return Math.max(m, s.id||0); }, 0) + 1;
     save(stations); state.stations = stations; state.selectedId = null;
-    logEvent('重設為原始資料庫（'+stations.length+' 站）'); render();
+    logEvent('重設為開啟時狀態（'+stations.length+' 站）'); render();
   }
 
   // ---- timestamps & change log ----
@@ -1641,7 +1645,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<button data-action="exportCSV" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 CSV</button>'
       +     '<button data-action="saveAsHTML" title="另存為可獨立開啟的 HTML 快照（內含目前資料與更新紀錄）" style="border:1.5px solid #00853C;background:#00853C;color:#fff;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">另存新檔</button>'
       +     '<button data-action="toggleLog" title="檢視資料更新紀錄日誌" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">更新紀錄</button>'
-      +     '<button data-action="resetData" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
+      +     '<button data-action="resetData" title="還原為本次開啟檔案時、尚未更新前的狀態（非原始資料庫）" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
       +   '</div>'
       + '</header>'
       + '<div style="padding:6px 26px 0;font-size:11.5px;color:#8A938F">'+hint+'</div>'
