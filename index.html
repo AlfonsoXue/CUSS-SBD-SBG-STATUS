@@ -157,7 +157,21 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function save(stations){ try{ localStorage.setItem(KEY, JSON.stringify(stations)); }catch(e){} }
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
-                view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss' };
+                view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
+                filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all' } };
+
+  function stationMatch(s){
+    var f = state.filters;
+    if(f.region!=='all' && s.region!==f.region) return false;
+    if(f.cuss!=='all' && s.cuss!==f.cuss) return false;
+    if(f.sbd!=='all' && s.sbd!==f.sbd) return false;
+    if(f.sbg!=='all' && s.sbg!==f.sbg) return false;
+    if(f.kpi==='yes' && !s.kpi) return false;
+    if(f.kpi==='no' && s.kpi) return false;
+    return true;
+  }
+  function filteredStations(){ return state.stations.filter(stationMatch); }
+  function filtersActive(){ var f=state.filters; return f.region!=='all'||f.cuss!=='all'||f.sbd!=='all'||f.sbg!=='all'||f.kpi!=='all'; }
 
   // ---- mutations ----
   function update(stations){ save(stations); state.stations = stations; render(); }
@@ -181,6 +195,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setMapTheme(t){ state.mapTheme = t; render(); }
   function setMapPalette(p){ state.mapPalette = p; render(); }
   function setDotColor(d){ state.dotColor = d; render(); }
+  function setFilter(k, v){ state.filters[k] = v; render(); }
+  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all' }; render(); }
 
   function addStation(){
     var sel = find(state.selectedId);
@@ -237,12 +253,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     });
     return _h2c;
   }
-  function exportPNG(){
-    var el = document.getElementById('cuss-board');
+  function exportPNG(targetId, filename){
+    var el = document.getElementById(targetId || 'cuss-board');
     if(!el) return;
     loadH2C().then(function(h2c){
-      return h2c(el, { scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false }).then(function(canvas){
-        canvas.toBlob(function(b){ if(b) download('自助化設備儀表板.png', b); });
+      return h2c(el, { scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false,
+                       ignoreElements:function(node){ return node.getAttribute && node.getAttribute('data-noshot')==='1'; } }).then(function(canvas){
+        canvas.toBlob(function(b){ if(b) download(filename || '自助化設備儀表板.png', b); });
       });
     }).catch(function(){
       window.alert('圖片匯出失敗（可能無法連線載入匯出元件），請改用匯出 JSON／CSV 功能。');
@@ -489,19 +506,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   var CONT_COLOR = {
     'North America':'#7FB3D5','South America':'#F5B041','Europe':'#82C4A6','Africa':'#E59866','Asia':'#C39BD3','Oceania':'#76D7C4'
   };
-  function coverageByContinent(){
-    // % of stations online (cuss) whose coordinates fall in each continent — approximate by station.region mapping
-    // Simpler: use all stations, map each to continent via GEO longitude bands is complex; use region text.
+  function coverageByContinent(list){
+    // % of stations online (cuss) per continent, mapped from station.region
     var regionToCont = {'美洲':'North America','歐洲':'Europe','東南亞':'Asia','東北亞':'Asia','大陸':'Asia','港澳':'Asia','台灣區':'Asia','紐澳':'Oceania'};
     var agg = {};
-    state.stations.forEach(function(s){
+    (list||state.stations).forEach(function(s){
       var c = regionToCont[s.region]; if(!c) return;
       agg[c] = agg[c] || {on:0, tot:0};
       agg[c].tot++; if(s.cuss==='online') agg[c].on++;
     });
     return agg;
   }
-  function continentFill(cont){
+  function continentFill(cont, list){
     if(state.mapTheme==='dark'){
       if(state.mapPalette==='region') return CONT_COLOR[cont] ? shade(CONT_COLOR[cont], -0.35) : '#2A3338';
       if(state.mapPalette==='mono') return '#3A454B';
@@ -509,7 +525,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(state.mapPalette==='mono') return '#D7DCDE';
     if(state.mapPalette==='brand') return '#CDE4D7';
     if(state.mapPalette==='coverage'){
-      var agg = coverageByContinent()[cont];
+      var agg = coverageByContinent(list)[cont];
       var r = agg && agg.tot ? agg.on/agg.tot : 0;
       // green ramp
       return mix('#EAF1EE', '#00853C', r);
@@ -531,13 +547,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function dotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
   function mapSVGHTML(){
+    var visible = filteredStations();
     var ocean = state.mapTheme==='dark' ? '#161E22' : '#EAF1F4';
     var stroke = state.mapTheme==='dark' ? '#0E1417' : '#FFFFFF';
     var land = MAPCONT.map(function(c){
-      return '<path d="'+c.p+'" fill="'+continentFill(c.c)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
+      return '<path d="'+c.p+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
     }).join('');
     // sort so smaller (lower pax) dots draw first, big hubs on top
-    var ss = state.stations.slice().filter(function(s){ return GEO[s.code]||(s.lat!=null); });
+    var ss = visible.slice().filter(function(s){ return GEO[s.code]||(s.lat!=null); });
     ss.sort(function(a,b){ return (a.pax||0)-(b.pax||0); });
     var dots = ss.map(function(s){
       var g = GEO[s.code]; if(!g) return '';
@@ -562,10 +579,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       : [{c:'#3E7CB1',t:'美洲'},{c:'#2E8B57',t:'歐洲'},{c:'#E8A400',t:'東南亞'},{c:'#C0392B',t:'東北亞'},{c:'#8E44AD',t:'大陸'},{c:'#16A085',t:'港澳'},{c:'#00853C',t:'台灣區'},{c:'#D35400',t:'紐澳'}]
     ).map(function(o){ return '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:10px;height:10px;border-radius:50%;background:'+o.c+'"></span>'+o.t+'</span>'; }).join('');
 
-    return '<section style="flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+    var nShown = filteredStations().length, nTot = state.stations.length;
+    return '<section id="map-export" style="flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">'
       +   '<div><div style="font-size:16px;font-weight:900;color:#00853C">全球場站分布圖</div>'
-      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">圓點＝場站，大小＝旅客量、顏色＝'+(state.dotColor==='cuss'?'CUSS 現況':'所屬區域')+'、白框＝KPI 場站</div></div>'
+      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">圓點＝場站，大小＝旅客量、顏色＝'+(state.dotColor==='cuss'?'CUSS 現況':'所屬區域')+'、白框＝KPI 場站　·　顯示 '+nShown+' / '+nTot+' 站</div></div>'
+      +   '<button data-action="exportPNG" data-target="map-export" data-file="全球場站分布圖.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出地圖圖片</button>'
       + '</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 10px;padding:10px 12px;background:#F5F7F7;border-radius:10px">'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">深淺</span>'+pill('mapTheme','data-theme','light',state.mapTheme,'淺色')+pill('mapTheme','data-theme','dark',state.mapTheme,'深色')+'</div>'
@@ -596,9 +615,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</div>';
   }
   function matrixHTML(){
-    // scatter plot area 0..1 -> pixels
-    var PW = 100, PH = 100; // percentage coordinate space via CSS
-    var dots = state.stations.map(function(s){
+    var visible = filteredStations();
+    var dots = visible.map(function(s){
       var x = volumeScore(s), y = automationScore(s);
       var q = quadrantOf(s);
       var jx = (((s.id*37)%100)/100 - 0.5) * 7;
@@ -612,9 +630,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         + 'style="position:absolute;left:'+left+'%;top:'+top+'%;transform:translate(-50%,-50%);width:'+r*2+'px;height:'+r*2+'px;border-radius:50%;background:'+STATUS[s.cuss].color+';color:'+STATUS[s.cuss].textOn+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;cursor:pointer;border:1.5px solid #fff;'+(s.kpi?ring:'box-shadow:0 1px 2px rgba(0,0,0,.2)')+selO+'">'+esc(s.code)+'</div>';
     }).join('');
 
-    return '<section style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
-      + '<div style="font-size:16px;font-weight:900;color:#141819">場站策略定位矩陣</div>'
-      + '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點顏色＝CUSS 現況、白圈＝KPI</div>'
+    return '<section id="matrix-export" style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
+      +   '<div><div style="font-size:16px;font-weight:900;color:#141819">場站策略定位矩陣</div>'
+      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點顏色＝CUSS 現況、白圈＝KPI　·　顯示 '+visible.length+' 站</div></div>'
+      +   '<button data-action="exportPNG" data-target="matrix-export" data-file="場站定位矩陣.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出矩陣圖片</button>'
+      + '</div>'
       + '<div style="display:flex;gap:8px;margin-top:14px;flex:1;min-height:430px">'
       +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:20px">'
       +     '<span style="font-size:11px;color:#8A938F">高</span>'
@@ -637,9 +658,40 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</section>';
   }
 
+  function filterSelect(field, label, opts){
+    var cur = state.filters[field];
+    var options = opts.map(function(o){ return '<option value="'+o.v+'"'+(cur===o.v?' selected':'')+'>'+esc(o.label)+'</option>'; }).join('');
+    return '<label style="display:flex;align-items:center;gap:6px">'
+      + '<span style="font-size:11px;font-weight:700;color:#515A5D">'+label+'</span>'
+      + '<select data-filter="'+field+'" style="border:1px solid '+(cur!=='all'?'#00853C':'#DFE3E4')+';border-radius:8px;padding:6px 9px;font-size:12px;font-family:inherit;background:#fff;color:'+(cur!=='all'?'#00853C':'#141819')+';font-weight:'+(cur!=='all'?'700':'400')+';cursor:pointer">'+options+'</select>'
+      + '</label>';
+  }
+  function filterBarHTML(){
+    var statusOpts = [{v:'all',label:'全部'}].concat(ORDER.map(function(k){ return {v:k, label:STATUS[k].mark+' '+STATUS[k].label}; }));
+    var regions = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
+    state.stations.forEach(function(s){ if(s.region && regions.indexOf(s.region)<0) regions.push(s.region); });
+    var regionOpts = [{v:'all',label:'全部區域'}].concat(regions.map(function(r){ return {v:r, label:r}; }));
+    var kpiOpts = [{v:'all',label:'全部'},{v:'yes',label:'僅 KPI 場站'},{v:'no',label:'非 KPI'}];
+    var clearBtn = filtersActive()
+      ? '<button data-action="clearFilters" style="border:1px solid #DFE3E4;background:#fff;color:#C24626;border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">清除篩選</button>'
+      : '';
+    return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:12px 16px;margin-bottom:14px">'
+      + '<span style="font-size:12px;font-weight:800;color:#00853C">篩選</span>'
+      + filterSelect('region','場站區域',regionOpts)
+      + filterSelect('cuss','CUSS',statusOpts)
+      + filterSelect('sbd','SBD',statusOpts)
+      + filterSelect('sbg','SBG',statusOpts)
+      + filterSelect('kpi','經理人 KPI',kpiOpts)
+      + clearBtn
+      + '</div>';
+  }
   function mapBodyHTML(){
-    return '<div id="cuss-board" style="display:flex;gap:18px;align-items:stretch">'
-      + mapPanelHTML() + matrixHTML() + '</div>';
+    return '<div>'
+      + filterBarHTML()
+      + '<div id="cuss-board" style="display:flex;gap:18px;align-items:stretch">'
+      +   mapPanelHTML() + matrixHTML()
+      + '</div>'
+      + '</div>';
   }
 
   function render(){
@@ -764,7 +816,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     switch(a){
       case 'addStation': addStation(); break;
       case 'toggleQuick': toggleQuick(); break;
-      case 'exportPNG': exportPNG(); break;
+      case 'exportPNG': exportPNG(t.getAttribute('data-target'), t.getAttribute('data-file')); break;
+      case 'clearFilters': clearFilters(); break;
       case 'exportJSON': exportJSON(); break;
       case 'exportCSV': exportCSV(); break;
       case 'resetData': resetData(); break;
@@ -788,6 +841,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
   app.addEventListener('change', function(e){
     var t = e.target;
+    var flt = t.getAttribute && t.getAttribute('data-filter');
+    if(flt){ setFilter(flt, t.value); return; }
     var inp = t.getAttribute && t.getAttribute('data-input');
     if(!inp) return;
     var id = +t.getAttribute('data-id');
