@@ -170,7 +170,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
                 showKpiRing: true, showNames: false, dotScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
-                comboSel: ['all','cs','cg'], comboOpen: false,
+                comboSel: [], comboOpen: false,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
                 pickerOpen: false };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
@@ -224,6 +224,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     else if(state.comboSel.length < 3) state.comboSel.push(key);
     render();
   }
+  function clearCombo(){ state.comboSel = []; state.comboOpen = false; render(); }
   function zoomMap(k){
     var vb = state.mapVB;
     var cx = vb.x + vb.w/2, cy = vb.y + vb.h/2;
@@ -356,7 +357,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function comboCounts(){
     var c = {}; COMBOS.forEach(function(o){ c[o.key]=0; });
-    filteredStations().forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
+    state.stations.forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
     return c;
   }
 
@@ -439,15 +440,22 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return v ? '<span style="position:absolute;bottom:14px;right:4px;font-size:8px;font-weight:700;color:'+ 'rgba(255,255,255,.9)' +';letter-spacing:.3px">'+esc(v)+'</span>' : '';
   }
 
-  function comboSectionHTML(){
-    var total = filteredStations().length || 1;
-    var counts = comboCounts();
+  // stations matching the union of the selected combos (all stations if none)
+  function comboFilteredStations(){
     var sel = state.comboSel.filter(function(k){ return COMBOS.some(function(c){ return c.key===k; }); });
-
+    if(!sel.length) return state.stations;
+    var picked = sel.map(function(k){ return COMBOS.filter(function(c){ return c.key===k; })[0]; });
+    return state.stations.filter(function(s){ return picked.some(function(c){ return comboMatch(s, c); }); });
+  }
+  // dropdown that filters the coverage cards by CUSS/SBD/SBG online combination
+  function comboFilterHTML(){
+    var counts = comboCounts();   // counts over all stations
+    var sel = state.comboSel.filter(function(k){ return COMBOS.some(function(c){ return c.key===k; }); });
     var menu = '';
     if(state.comboOpen){
       menu = '<div data-action="closeComboMenu" style="position:fixed;inset:0;z-index:15"></div>'
-        + '<div style="position:absolute;right:0;top:calc(100% + 5px);z-index:20;width:210px;background:#fff;border:1px solid #DFE3E4;border-radius:10px;box-shadow:0 10px 26px rgba(20,40,30,.16);padding:5px">'
+        + '<div style="position:absolute;right:0;top:calc(100% + 5px);z-index:20;width:220px;background:#fff;border:1px solid #DFE3E4;border-radius:10px;box-shadow:0 10px 26px rgba(20,40,30,.16);padding:5px">'
+        + '<div style="font-size:10.5px;color:#8A938F;padding:4px 8px 6px">勾選搭配以篩選覆蓋率（最多 3 項；「有」＝已上線）</div>'
         + COMBOS.map(function(c){
             var on = sel.indexOf(c.key)>=0;
             var disabled = !on && sel.length>=3;
@@ -456,33 +464,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
               + '<span style="font-size:11px;color:#8A938F;flex:none">'+counts[c.key]+'</span>'
               + '</div>';
           }).join('')
+        + (sel.length ? '<div data-action="clearCombo" style="text-align:center;padding:7px;margin-top:3px;border-top:1px solid #EEF2F0;font-size:12px;color:#C24626;cursor:pointer">清除篩選</div>' : '')
         + '</div>';
     }
-
-    var cards = sel.length
-      ? sel.map(function(k){
-          var c = COMBOS.filter(function(o){ return o.key===k; })[0];
-          var n = counts[k], pct = Math.round(n/total*100);
-          return '<div style="background:#fff;border-radius:11px;padding:13px 15px;border:1px solid #E4EBE6">'
-            + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'
-            +   '<div style="font-size:13px;font-weight:800;color:#141819">'+c.label+'</div>'
-            +   '<div style="text-align:right;white-space:nowrap"><span style="font-size:22px;font-weight:900;color:#00853C">'+pct+'%</span> <span style="font-size:11px;color:#6E787B">'+n+' 站</span></div>'
-            + '</div>'
-            + '<div style="height:8px;border-radius:5px;background:#E7EEEA;margin-top:9px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:#00853C;border-radius:5px"></div></div>'
-            + '</div>';
-        }).join('')
-      : '<div style="background:#fff;border:1px dashed #DDE4E0;border-radius:11px;padding:16px;text-align:center;font-size:12px;color:#8A938F">尚未選擇搭配，請由右上下拉選單選取（最多 3 項）</div>';
-
-    return '<div style="margin-top:18px">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'
-      +   '<div><div style="font-size:15px;font-weight:900;color:#00853C">設備搭配統計</div>'
-      +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">下拉複選，最多 3 項；「有」＝已上線</div></div>'
-      +   '<div style="position:relative;flex:none">'
-      +     '<button data-action="toggleComboMenu" style="border:1.5px solid #00853C;background:'+(state.comboOpen?'#00853C':'#fff')+';color:'+(state.comboOpen?'#fff':'#00853C')+';border-radius:16px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer">'+(sel.length? sel.length+' 項已選':'選擇搭配')+' ▾</button>'
-      +     menu
-      +   '</div>'
-      + '</div>'
-      + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">'+cards+'</div>'
+    return '<div style="position:relative;flex:none">'
+      + '<button data-action="toggleComboMenu" style="border:1.5px solid #00853C;background:'+(state.comboOpen||sel.length?'#00853C':'#fff')+';color:'+(state.comboOpen||sel.length?'#fff':'#00853C')+';border-radius:16px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">'+(sel.length? '搭配篩選 '+sel.length:'設備搭配篩選')+' ▾</button>'
+      + menu
       + '</div>';
   }
 
@@ -548,7 +535,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return byAutomation(a, b);
   }
   function groupList(){
-    var pool = filteredStations();
+    var pool = state.stations;
     if(state.groupMode==='region'){
       var regs = REGION_ORDER.filter(function(r){ return pool.some(function(s){ return s.region===r; }); });
       pool.forEach(function(s){ if(s.region && regs.indexOf(s.region)<0) regs.push(s.region); });
@@ -1091,7 +1078,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function render(){
     hideTip();
     var stationCount = state.stations.length;
-    var vis = filteredStations();          // coverage / combo / chips all respect the active filter
+    var vis = comboFilteredStations();     // coverage cards respect the combo dropdown filter
     var visCount = vis.length;
     var dataDate = '2026·05';
     var stages = [
@@ -1118,19 +1105,19 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       ? '<button data-action="toggleQuick" style="border:1.5px solid #00853C;background:'+quickBg+';color:'+quickFg+';border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">快速切換模式'+quickState+'</button>'
       : '';
 
-    var covSub = filtersActive()
-      ? '依<b style="color:#00853C">篩選後 '+visCount+' / '+stationCount+'</b> 個場站即時統計'
+    var comboOn = state.comboSel.length > 0;
+    var covSub = comboOn
+      ? '依<b style="color:#00853C">所選搭配 '+visCount+' / '+stationCount+'</b> 站即時統計'
       : '依目前 '+stationCount+' 個納管場站即時統計';
     var boardBody =
-      '<div>'
-      + filterBarHTML()
-      + pickerHTML()
-      + '<div id="cuss-board" style="background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
+      '<div id="cuss-board" style="background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
       +   '<section style="flex:none;width:486px;background:#F3F7F4;border-radius:12px;padding:20px 20px 22px">'
-      +     '<div style="font-size:16px;font-weight:900;color:#00853C">CUSS｜SBD｜SBG設備覆蓋率</div>'
-      +     '<div style="font-size:11px;color:#6E787B;margin-top:3px">'+covSub+'</div>'
+      +     '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
+      +       '<div><div style="font-size:16px;font-weight:900;color:#00853C">CUSS｜SBD｜SBG設備覆蓋率</div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:3px">'+covSub+'</div></div>'
+      +       comboFilterHTML()
+      +     '</div>'
       +     '<div style="display:flex;flex-direction:column;gap:14px;margin-top:16px">'+stages.map(stageHTML).join('')+'</div>'
-      +     comboSectionHTML()
       +   '</section>'
       +   '<section style="flex:1;min-width:0">'
       +     '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'
@@ -1144,7 +1131,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +       legendMaster
       +     '</div>'
       +   '</section>'
-      + '</div>'
       + '</div>';
 
     var body = state.view==='board' ? boardBody : mapBodyHTML();
@@ -1227,6 +1213,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'toggleComboMenu': toggleComboMenu(); break;
       case 'closeComboMenu': closeComboMenu(); break;
       case 'toggleCombo': toggleCombo(t.getAttribute('data-combo')); break;
+      case 'clearCombo': clearCombo(); break;
       case 'togglePicker': togglePicker(); break;
       case 'toggleExclude': toggleExclude(id); break;
       case 'pickAll': setAllExcluded(false); break;
