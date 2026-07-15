@@ -1536,11 +1536,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var par = '';   // globe parallels (horizontal chords)
     [-20,-10,0,10,20].forEach(function(dy){ var w = Math.sqrt(1-(dy/30)*(dy/30))*30; par += '<line x1="'+(58-w).toFixed(1)+'" y1="'+(56+dy)+'" x2="'+(58+w).toFixed(1)+'" y2="'+(56+dy)+'" stroke="'+o+'" stroke-width="'+(dy===0?1.4:1)+'"/>'; });
     return '<svg width="168" height="48" viewBox="0 0 380 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EVA AIR 長榮航空" style="display:block;flex:none">'
-      // wordmark — heavy, slightly forward-slanted to echo the EVA custom face
-      + '<g transform="translate(0,44) skewX(-9)">'
-      +   '<text x="0" y="0" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="52" fill="'+g+'" transform="scale(0.9,1)" letter-spacing="-1">EVA AIR</text>'
-      + '</g>'
-      + '<text x="0" y="98" font-family="\'PingFang TC\',\'Microsoft JhengHei\',\'Noto Sans TC\',sans-serif" font-weight="900" font-size="40" fill="'+g+'" letter-spacing="2">長榮航空</text>'
+      // wordmark — heavy upright blocky letters (EVA custom face)
+      + '<text x="0" y="44" font-family="\'Arial Black\',Arial,Helvetica,sans-serif" font-weight="900" font-size="52" fill="'+g+'" transform="scale(0.9,1)" letter-spacing="-1">EVA AIR</text>'
+      + '<text x="0" y="98" font-family="\'PingFang TC\',\'Microsoft JhengHei\',\'Noto Sans TC\',sans-serif" font-weight="900" font-size="40" fill="'+g+'" letter-spacing="4">長榮航空</text>'
       // tailfin with globe
       + '<g transform="translate(256,2)">'
       +   '<path d="M6 100 L66 2 L100 2 L100 100 Z" fill="'+g+'"/>'                          // swept fin
