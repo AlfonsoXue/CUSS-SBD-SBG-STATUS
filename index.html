@@ -1308,11 +1308,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var nShown = filteredStations().length, nTot = state.stations.length;
     return '<section id="map-export" style="--map-legend-font:'+state.mapLegendFont+'px;flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">'
-      +   '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div style="font-size:16px;font-weight:900;color:#00853C">全球場站分布圖</div>'
+      +   '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div style="font-size:16px;font-weight:900;color:#00853C">全球場站自動化設備概況</div>'
       +   '<div style="font-size:11px;color:#6E787B">顯示 '+nShown+' / '+nTot+' 站</div></div>'
       +   '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
       +     mapMoveControls()
-      +     '<button data-action="exportPNG" data-target="map-export" data-file="全球場站分布圖.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出地圖圖片</button>'
+      +     '<button data-action="exportPNG" data-target="map-export" data-file="全球場站自動化設備概況.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出地圖圖片</button>'
       +   '</div>'
       + '</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 10px;padding:10px 12px;background:#F5F7F7;border-radius:10px">'
@@ -1321,16 +1321,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓點著色</span>'+pill('dotColor','data-dc','cuss',state.dotColor,'現況（上CUSS／下SBD）')+pill('dotColor','data-dc','region',state.dotColor,'所屬區域')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">場站名稱</span>'+switchToggle('showNames','data-sn',state.showNames)+'</div>'
       +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">KPI 白框</span>'+switchToggle('kpiRing','data-kr',state.showKpiRing)+'</div>'
-      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">圖例大小</span>'
-      +     '<input type="range" min="8" max="20" step="1" value="'+state.mapLegendFont+'" data-maplegendsize style="width:100px;accent-color:#00853C;cursor:pointer" />'
-      +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+state.mapLegendFont+'px</span>'
-      +   '</div>'
       + '</div>'
       + mapSVGHTML()
-      + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid #E4EBE6">'
+      + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 14px;margin-top:10px;padding-top:10px;border-top:1px solid #E4EBE6">'
       +   '<span style="font-size:var(--map-legend-font,11px);font-weight:700;color:#6E787B">圖例</span>'+legendItems
       +   (state.dotColor==='cuss' ? '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;display:inline-block;width:1.1em;height:1.1em;border-radius:50%;overflow:hidden;border:1px solid #DDE4E0"><span style="display:block;height:64%;background:#00853C"></span><span style="display:block;height:36%;background:#E8A400"></span></span>上＝CUSS／下＝SBD</span>' : '')
       +   (state.showKpiRing ? '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;width:1.1em;height:1.1em;border-radius:50%;background:#C7CDCF;border:1.4px solid #fff;box-shadow:0 0 0 1px #C7CDCF"></span>白框＝KPI</span>' : '')
+      +   '<div style="display:flex;align-items:center;gap:8px;margin-left:auto"><span style="font-size:11px;font-weight:700;color:#515A5D">圖例大小</span>'
+      +     '<input type="range" min="8" max="20" step="1" value="'+state.mapLegendFont+'" data-maplegendsize style="width:100px;accent-color:#00853C;cursor:pointer" />'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+state.mapLegendFont+'px</span>'
+      +   '</div>'
       + '</div>'
       + '</section>';
   }
