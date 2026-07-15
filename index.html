@@ -422,6 +422,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</div>';
   }
 
+  // order chips left→right by automation completeness (most complete first)
+  function byAutomation(a, b){
+    var d = automationScore(b) - automationScore(a);
+    if(Math.abs(d) > 1e-9) return d;
+    var c = STATUS_WEIGHT[b.cuss] - STATUS_WEIGHT[a.cuss];
+    if(c) return c;
+    return (a.code||'').localeCompare(b.code||'');
+  }
   function groupList(){
     if(state.groupMode==='region'){
       var regs = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
@@ -429,11 +437,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       // stations with empty region
       if(state.stations.some(function(s){ return !s.region; })) regs.push('');
       return regs.map(function(r){
-        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }) };
+        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }).sort(byAutomation) };
       });
     }
     return PHASES.map(function(p){
-      return { name:p, dot:phaseDot[p]||STATUS.evaluating.color, items: state.stations.filter(function(s){ return s.phase===p; }) };
+      return { name:p, dot:phaseDot[p]||STATUS.evaluating.color, items: state.stations.filter(function(s){ return s.phase===p; }).sort(byAutomation) };
     });
   }
   function groupHTML(g){
