@@ -1528,6 +1528,25 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '</div>';
   }
 
+  // EVA AIR corporate logo (inline SVG so the file stays self-contained)
+  function evaLogo(){
+    var g = '#00853C', o = '#EE7623';
+    return '<svg width="150" height="46" viewBox="0 0 340 96" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EVA AIR 長榮航空" style="display:block;flex:none">'
+      + '<text x="0" y="42" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="44" fill="'+g+'" letter-spacing="1">EVA AIR</text>'
+      + '<text x="2" y="88" font-family="\'PingFang TC\',\'Microsoft JhengHei\',\'Noto Sans TC\',sans-serif" font-weight="800" font-size="34" fill="'+g+'" letter-spacing="4">長榮航空</text>'
+      + '<g transform="translate(250,2)">'
+      +   '<path d="M2 92 L52 0 L86 0 L86 92 Z" fill="'+g+'"/>'                       // swept tailfin
+      +   '<ellipse cx="55" cy="52" rx="26" ry="30" fill="#ffffff"/>'                   // globe window
+      +   '<circle cx="55" cy="52" r="24" fill="none" stroke="'+o+'" stroke-width="1.5"/>'
+      +   '<path d="M31 52 H79" stroke="'+o+'" stroke-width="1.4"/>'                    // equator
+      +   '<path d="M35 38 H75 M35 66 H75" stroke="'+o+'" stroke-width="1.1" fill="none"/>' // parallels
+      +   '<ellipse cx="55" cy="52" rx="9" ry="24" fill="none" stroke="'+o+'" stroke-width="1.1"/>'  // meridians
+      +   '<ellipse cx="55" cy="52" rx="17" ry="24" fill="none" stroke="'+o+'" stroke-width="1.1"/>'
+      +   '<path d="M55 30 L59 47 L79 52 L59 57 L55 84 L51 57 L31 52 L51 47 Z" fill="'+g+'"/>'  // compass star
+      + '</g>'
+      + '</svg>';
+  }
+
   function render(){
     hideTip();
     var stationCount = state.stations.length;
@@ -1631,9 +1650,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var html =
       '<div style="min-height:100vh;display:flex;flex-direction:column">'
       + '<header style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:16px 26px;background:#fff;border-bottom:1px solid #DFE3E4">'
-      +   '<div style="display:flex;flex-direction:column;gap:3px">'
-      +     '<div style="font-size:20px;font-weight:900;color:#00853C;letter-spacing:.5px">機場自助化設備建置儀表板</div>'
-      +     '<div style="font-size:12px;color:#6E787B">旅客自助旅程 · CUSS｜SBD｜SBG設備覆蓋 &nbsp;|&nbsp; 全球 '+stationCount+' 個納管場站 &nbsp;|&nbsp; 資料基準 '+dataDate+'</div>'
+      +   '<div style="display:flex;align-items:center;gap:16px">'
+      +     evaLogo()
+      +     '<div style="width:1px;height:40px;background:#DFE3E4;flex:none"></div>'
+      +     '<div style="display:flex;flex-direction:column;gap:3px">'
+      +       '<div style="font-size:20px;font-weight:900;color:#00853C;letter-spacing:.5px">機場自助化設備建置儀表板</div>'
+      +       '<div style="font-size:12px;color:#6E787B">旅客自助旅程 · CUSS｜SBD｜SBG設備覆蓋 &nbsp;|&nbsp; 全球 '+stationCount+' 個納管場站 &nbsp;|&nbsp; 資料基準 '+dataDate+'</div>'
+      +     '</div>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
       +     viewSwitch
