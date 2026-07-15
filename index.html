@@ -169,7 +169,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -216,6 +216,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setDotColor(d){ state.dotColor = d; render(); }
   function setKpiRing(on){ state.showKpiRing = on; render(); }
   function setShowNames(on){ state.showNames = on; render(); }
+  function setMapNameScale(v){ state.mapNameScale = Math.max(0.6, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
   function setDotScale(v){ state.dotScale = v; render(); }
   function toggleComboMenu(){ state.comboOpen = !state.comboOpen; render(); }
   function closeComboMenu(){ state.comboOpen = false; render(); }
@@ -865,7 +866,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     // label font in world units scales with zoom so on-screen size stays ~constant
     // → zooming into a dense cluster genuinely de-crowds the labels
     var vbNow = state.mapVB;
-    var labelFS = Math.max(2.6, Math.min(16, 9.5 * (vbNow.w / BASE_VB.w)));
+    var labelFS = Math.max(2.6, Math.min(16, 9.5 * (vbNow.w / BASE_VB.w))) * (state.mapNameScale||1);
     var defs = '', dots = '', labelItems = [];
     pool.forEach(function(m){
       var s = m.s;
@@ -935,18 +936,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓點著色</span>'+pill('dotColor','data-dc','cuss',state.dotColor,'現況（上CUSS／下SBD）')+pill('dotColor','data-dc','region',state.dotColor,'所屬區域')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">場站名稱</span>'+pill('showNames','data-sn','on',state.showNames?'on':'off','顯示')+pill('showNames','data-sn','off',state.showNames?'on':'off','隱藏')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">KPI 白框</span>'+pill('kpiRing','data-kr','on',state.showKpiRing?'on':'off','顯示')+pill('kpiRing','data-kr','off',state.showKpiRing?'on':'off','隱藏')+'</div>'
-      + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;margin:0 0 10px;padding:9px 12px;background:#F5F7F7;border-radius:10px">'
-      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.8" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
-      +     '<button data-action="zoomMap" data-k="1.25" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:18px;font-weight:700;cursor:pointer;line-height:1">－</button>'
-      +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">重置視圖</button>'
-      +   '</div>'
-      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓圈大小</span>'
-      +     '<input type="range" min="0.4" max="2.6" step="0.1" value="'+state.dotScale+'" data-dotsize style="width:120px;accent-color:#00853C;cursor:pointer" />'
-      +     '<span style="font-size:11px;color:#8A938F;min-width:34px">'+Math.round(state.dotScale*100)+'%</span>'
-      +   '</div>'
-      +   '<span style="font-size:11px;color:#8A938F">可直接在地圖上拖曳移動、滾輪縮放</span>'
       + '</div>'
       + mapSVGHTML()
       + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid #E4EBE6">'
@@ -1072,6 +1061,25 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + '<select data-filter="'+field+'" style="border:1px solid '+(cur!=='all'?'#00853C':'#DFE3E4')+';border-radius:8px;padding:6px 9px;font-size:12px;font-family:inherit;background:#fff;color:'+(cur!=='all'?'#00853C':'#141819')+';font-weight:'+(cur!=='all'?'700':'400')+';cursor:pointer">'+options+'</select>'
       + '</label>';
   }
+  // map view / zoom / dot-size / station-name-size controls — placed in the
+  // blank space to the right of the filter row.
+  function mapMoveControls(){
+    return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;margin-left:auto">'
+      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">縮放</span>'
+      +     '<button data-action="zoomMap" data-k="0.8" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="1.25" style="width:28px;height:28px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:18px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">重置視圖</button>'
+      +   '</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓圈大小</span>'
+      +     '<input type="range" min="0.4" max="2.6" step="0.1" value="'+state.dotScale+'" data-dotsize style="width:110px;accent-color:#00853C;cursor:pointer" />'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:34px">'+Math.round(state.dotScale*100)+'%</span>'
+      +   '</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">場站名稱字級</span>'
+      +     '<input type="range" min="0.6" max="2.4" step="0.1" value="'+state.mapNameScale+'" data-mapnamesize style="width:110px;accent-color:#00853C;cursor:pointer" />'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:34px">'+Math.round(state.mapNameScale*100)+'%</span>'
+      +   '</div>'
+      + '</div>';
+  }
   function filterBarHTML(){
     var statusOpts = [{v:'all',label:'全部'}].concat(ORDER.map(function(k){ return {v:k, label:STATUS[k].mark+' '+STATUS[k].label}; }));
     var regions = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
@@ -1092,6 +1100,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + filterSelect('kpi','經理人 KPI',kpiOpts)
       + pickerBtn
       + clearBtn
+      + mapMoveControls()
       + '</div>';
   }
   function pickerHTML(){
@@ -1343,6 +1352,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   app.addEventListener('change', function(e){
     var t = e.target;
     if(t.getAttribute && t.getAttribute('data-dotsize')!==null){ setDotScale(+t.value); return; }
+    if(t.getAttribute && t.getAttribute('data-mapnamesize')!==null){ setMapNameScale(+t.value); return; }
     var flt = t.getAttribute && t.getAttribute('data-filter');
     if(flt){ setFilter(flt, t.value); return; }
     var inp = t.getAttribute && t.getAttribute('data-input');
@@ -1406,7 +1416,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   app.addEventListener('input', function(e){
     var t = e.target;
     if(!t.getAttribute) return;
-    if(t.getAttribute('data-dotsize')!==null){
+    if(t.getAttribute('data-dotsize')!==null || t.getAttribute('data-mapnamesize')!==null){
       var lbl = t.parentElement && t.parentElement.querySelector('span:last-child');
       if(lbl) lbl.textContent = Math.round((+t.value)*100)+'%';
       return;
