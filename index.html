@@ -44,6 +44,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   "use strict";
 
   var KEY = 'eva_cuss_dashboard_v2';
+  var LOGKEY = 'eva_cuss_changelog_v1';
+  // a "另存新檔" HTML carries an embedded data snapshot; it uses an isolated
+  // storage key so it never clobbers the master dashboard's saved data.
+  var SNAPSHOT = (window.__SNAPSHOT__ && Object.prototype.toString.call(window.__SNAPSHOT__)==='[object Array]' && window.__SNAPSHOT__.length) ? window.__SNAPSHOT__ : null;
+  var STORE_KEY = SNAPSHOT ? 'eva_cuss_dashboard_snaplocal' : KEY;
   var PHASES = ['2025前','2026/Q1','2026/Q2','2026/Q3','2026/Q4','暫定2027','未排程'];
   var REGION_ORDER = ['美洲','歐洲','東南亞','東北亞','大陸','港澳','台灣區','紐澳'];
   var STATUS = {
@@ -156,7 +161,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   function load(){
     try{
-      var raw = localStorage.getItem(KEY);
+      var raw = localStorage.getItem(STORE_KEY);
       if(raw){
         var arr = JSON.parse(raw);
         if(Array.isArray(arr) && arr.length){
@@ -164,10 +169,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           return arr.map(normalize);
         }
       }
+      if(SNAPSHOT){   // first open of a 另存新檔 file — seed from its embedded data
+        nid = Math.max.apply(null, SNAPSHOT.map(function(s){ return s.id||0; })) + 1;
+        return SNAPSHOT.map(normalize);
+      }
     }catch(e){}
     return seed();
   }
-  function save(stations){ try{ localStorage.setItem(KEY, JSON.stringify(stations)); }catch(e){} }
+  function save(stations){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(stations)); }catch(e){} }
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
@@ -175,7 +184,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
-                pickerOpen: false };
+                pickerOpen: false, logOpen: false };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
   var VB_RATIO = BASE_VB.h / BASE_VB.w;
 
@@ -197,6 +206,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // ---- mutations ----
   function update(stations){ save(stations); state.stations = stations; render(); }
   function setField(id, field, val){
+    var cur = find(id);
+    if(cur && cur[field]!==val){ logEvent('編輯 '+(cur.code||'—')+'：'+(FIELD_LABEL[field]||field)+' → '+fieldValLabel(field, val)); }
     update(state.stations.map(function(s){
       if(s.id===id){ var n = {}; for(var k in s) n[k]=s[k]; n[field]=val; return n; }
       return s;
@@ -245,6 +256,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setFilter(k, v){ state.filters[k] = v; render(); }
   function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
+  function toggleLog(){ state.logOpen = !state.logOpen; render(); }
+  function closeLog(e, t){
+    var isBtn = t && t.getAttribute && t.getAttribute('data-role')==='logclose';
+    // clicking inside the modal card (data-stop) shouldn't close it
+    if(!isBtn && e && e.target && e.target.closest && e.target.closest('[data-stop]')) return;
+    state.logOpen = false; render();
+  }
+  function clearLog(){ if(!window.confirm('確定要清除所有更新紀錄嗎？')) return; changelog.length = 0; saveLog(); render(); }
   function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; render(); }
   function setAllExcluded(on){
     var e = {};
@@ -256,17 +275,52 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var sel = find(state.selectedId);
     var st = normalize({ id:nid++, code:'新站', region:(sel?sel.region:''), phase:(sel?sel.phase:PHASES[0]) });
     var stations = state.stations.concat([st]);
-    save(stations); state.stations = stations; state.selectedId = st.id; render();
+    save(stations); state.stations = stations; state.selectedId = st.id;
+    logEvent('新增場站（'+st.code+'）'); render();
   }
   function deleteStation(id){
+    var gone = find(id);
     var stations = state.stations.filter(function(s){ return s.id!==id; });
-    save(stations); state.stations = stations; state.selectedId = null; render();
+    save(stations); state.stations = stations; state.selectedId = null;
+    logEvent('刪除場站（'+(gone?gone.code:id)+'）'); render();
   }
   function resetData(){
     if(!window.confirm('確定要還原為原始資料庫嗎？目前的編輯將會清除。')) return;
     nid = 1;
     var stations = seed();
-    save(stations); state.stations = stations; state.selectedId = null; render();
+    save(stations); state.stations = stations; state.selectedId = null;
+    logEvent('重設為原始資料庫（'+stations.length+' 站）'); render();
+  }
+
+  // ---- timestamps & change log ----
+  var MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  function pad2(n){ return (n<10?'0':'')+n; }
+  // "DDMMM HH:MM" e.g. 15JUL 14:05
+  function stampShort(d){ d=d||new Date(); return pad2(d.getDate())+MONTHS[d.getMonth()]+' '+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
+  // "YYYY/MM/DD HH:MM:SS" for the log list
+  function stampFull(d){ d=d||new Date(); return d.getFullYear()+'/'+pad2(d.getMonth()+1)+'/'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds()); }
+
+  var LOG_STORE = SNAPSHOT ? STORE_KEY+'_log' : LOGKEY;
+  var changelog = (function(){
+    try{ var raw = localStorage.getItem(LOG_STORE); if(raw){ var a=JSON.parse(raw); if(Array.isArray(a) && a.length) return a; } }catch(e){}
+    // a 另存新檔 file carries its log embedded — use it directly (works even when
+    // localStorage is unavailable, e.g. opening the file via file://)
+    if(SNAPSHOT && window.__CHANGELOG__ && Object.prototype.toString.call(window.__CHANGELOG__)==='[object Array]') return window.__CHANGELOG__.slice();
+    return [];
+  })();
+  function saveLog(){ try{ localStorage.setItem(LOG_STORE, JSON.stringify(changelog.slice(0,500))); }catch(e){} }
+  function logEvent(text){
+    changelog.unshift({ t: stampFull(), msg: text });
+    if(changelog.length>500) changelog.length=500;
+    saveLog();
+  }
+  var FIELD_LABEL = { code:'場站代碼', region:'區域', phase:'建置時程', cuss:'CUSS 現況', sbd:'SBD 現況', sbg:'SBG 現況',
+    cussVendor:'CUSS 系統商', sbdVendor:'SBD 系統商', sbgVendor:'SBG 系統商', cussDate:'CUSS 啟用／時程', sbdDate:'SBD 啟用／時程',
+    kpi:'經理人 KPI', bagTag:'CUSS 列印行李條', pax:'旅客量', flights:'航班量', note:'各站進度', schedNote:'排程備註' };
+  function fieldValLabel(field, val){
+    if(field==='cuss'||field==='sbd'||field==='sbg') return STATUS[val] ? STATUS[val].label : val;
+    if(field==='kpi'||field==='bagTag') return val ? '是' : '否';
+    return (val===''||val==null) ? '（清空）' : String(val);
   }
 
   // ---- export ----
@@ -275,6 +329,54 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var a = document.createElement('a');
     a.href = url; a.download = name; document.body.appendChild(a); a.click();
     document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+  // ---- save as self-contained HTML snapshot ----
+  // rebuild a clean copy of the page (empty #app + the original inline scripts),
+  // rather than serialising the live post-render DOM — the latter bloats the file
+  // and can break re-execution. fetch() gives the pristine source when available
+  // (served over http/https); the reconstruction covers file:// where fetch is blocked.
+  // NB: never write the literal script open/close tag sequences in this file's own
+  // source — build them by concatenation so the app script round-trips through any
+  // number of 另存新檔 cycles without the HTML parser mis-detecting a script end.
+  var SO = '<'+'script>', SC = '<'+'/script>';
+  function buildCleanSource(){
+    var head = document.head ? document.head.innerHTML : '';
+    // reconstruct the static body shells (e.g. #app, #tip) as empty elements
+    var shells = [].slice.call(document.body ? document.body.children : []).filter(function(el){
+      return el.tagName !== 'SCRIPT';
+    }).map(function(el){
+      var tag = el.tagName.toLowerCase();
+      return '<'+tag+(el.id?' id="'+el.id+'"':'')+'></'+tag+'>';
+    }).join('\n');
+    var scripts = [].slice.call(document.querySelectorAll('script')).filter(function(s){
+      // drop only a previously-injected snapshot script (its content *starts* with
+      // window.__SNAPSHOT__=); keep the app script even though it references that name
+      return !s.src && !/^\s*window\.__SNAPSHOT__\s*=/.test(s.textContent||'');
+    }).map(function(s){ return SO+(s.textContent||'')+SC; }).join('\n');
+    return '<!DOCTYPE html>\n<html lang="zh-Hant">\n<head>\n'+head+'\n</head>\n<body>\n'+shells+'\n'+scripts+'\n</body>\n</html>';
+  }
+  function currentHTMLSource(){
+    return fetch(location.href).then(function(r){ if(!r.ok) throw 0; return r.text(); }).catch(function(){
+      return buildCleanSource();
+    });
+  }
+  function saveAsHTML(){
+    var ts = stampShort();
+    var name = '機場自助化設備建置儀表板(最後更新:'+ts+').html';
+    currentHTMLSource().then(function(src){
+      var data = state.stations.map(function(s){ var o={id:s.id}; FIELDS.forEach(function(f){ o[f]=s[f]; }); return o; });
+      // escape "<" so any closing-script sequence inside notes can't break the tag
+      var J = function(v){ return JSON.stringify(v).replace(/</g,'\\u003c'); };
+      var inject = SO+'window.__SNAPSHOT__='+J(data)
+        + ';window.__SNAPSHOT_TS__='+J(ts)
+        + ';window.__CHANGELOG__='+J(changelog.slice(0,500))+';'+SC;
+      // strip any snapshot that a previously-saved source may already carry, then
+      // inject a fresh one right after the body tag so it runs before the app script
+      src = src.replace(new RegExp(SO+'window\\.__SNAPSHOT__=[\\s\\S]*?'+SC+'\\s*','i'), '');
+      var out = /<body[^>]*>/i.test(src) ? src.replace(/(<body[^>]*>)/i, '$1\n'+inject+'\n') : (inject+src);
+      download(name, new Blob([out], {type:'text/html;charset=utf-8'}));
+      logEvent('另存 HTML 快照：'+name);
+    });
   }
   function exportJSON(){
     var out = state.stations.map(function(s){ var o={}; FIELDS.forEach(function(f){ o[f]=s[f]; }); return o; });
@@ -505,7 +607,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     save(stations); state.stations=stations; state.selectedId=null;
     state.filters={ region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} };
-    state.pickerOpen=false; render();
+    state.pickerOpen=false;
+    logEvent('匯入資料（'+srcLabel+'）：'+(mode==='replace'?('取代為 '+stations.length+' 站'):('更新 '+updated+' 站、新增 '+added+' 站，共 '+stations.length+' 站')));
+    render();
     window.alert('匯入完成：目前共 '+stations.length+' 個場站'+(mode==='merge'?('（更新 '+updated+'、新增 '+added+'）'):'')+'。');
   }
   function importData(){
@@ -1513,15 +1617,43 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<button data-action="importData" title="匯入 JSON／CSV（覆蓋）或原始 Excel 檔（OEM 提供的兩個檔案，合併更新）" style="border:1.5px solid #00853C;background:#fff;color:#00853C;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">匯入資料</button>'
       +     '<button data-action="exportJSON" title="下載目前資料為 JSON（可作為存檔，日後由「匯入資料」還原）" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 JSON</button>'
       +     '<button data-action="exportCSV" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 CSV</button>'
+      +     '<button data-action="saveAsHTML" title="另存為可獨立開啟的 HTML 快照（內含目前資料與更新紀錄）" style="border:1.5px solid #00853C;background:#00853C;color:#fff;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">另存新檔</button>'
+      +     '<button data-action="toggleLog" title="檢視資料更新紀錄日誌" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">更新紀錄</button>'
       +     '<button data-action="resetData" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
       +   '</div>'
       + '</header>'
       + '<div style="padding:6px 26px 0;font-size:11.5px;color:#8A938F">'+hint+'</div>'
       + '<div style="flex:1;padding:16px 26px 30px">'+body+'</div>'
       + '</div>'
-      + (sel ? panelHTML(sel) : '');
+      + (sel ? panelHTML(sel) : '')
+      + (state.logOpen ? logModalHTML() : '');
 
     document.getElementById('app').innerHTML = html;
+  }
+
+  // ---- update-log modal ----
+  function logModalHTML(){
+    var rows = changelog.length
+      ? changelog.map(function(e){
+          return '<div style="display:flex;gap:12px;padding:9px 4px;border-bottom:1px solid #EEF2F0">'
+            + '<div style="flex:none;width:150px;font-size:11.5px;color:#8A938F;font-variant-numeric:tabular-nums">'+esc(e.t)+'</div>'
+            + '<div style="flex:1;min-width:0;font-size:12.5px;color:#22312B;line-height:1.5">'+esc(e.msg)+'</div>'
+            + '</div>';
+        }).join('')
+      : '<div style="padding:26px 4px;text-align:center;color:#9AA3A0;font-size:12.5px">目前沒有更新紀錄。編輯場站、匯入資料、新增／刪除、重設或另存 HTML 時會自動記錄。</div>';
+    return '<div data-action="closeLog" style="position:fixed;inset:0;background:rgba(20,32,26,.42);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:56px 16px">'
+      + '<div data-stop="1" style="width:760px;max-width:100%;max-height:82vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(15,30,22,.32);overflow:hidden">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #E4EBE6">'
+      +     '<div><div style="font-size:16px;font-weight:900;color:#00853C">更新紀錄日誌</div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:2px">共 '+changelog.length+' 筆　·　由新到舊，最多保留 500 筆</div></div>'
+      +     '<div style="display:flex;gap:8px">'
+      +       '<button data-action="clearLog" style="border:1px solid #E4C9C2;background:#fff;color:#C24626;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">清除紀錄</button>'
+      +       '<button data-action="closeLog" data-role="logclose" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">關閉</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div style="flex:1;min-height:0;overflow:auto;padding:6px 20px 16px">'+rows+'</div>'
+      + '</div>'
+      + '</div>';
   }
 
   // ---- tooltip ----
@@ -1581,6 +1713,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'pickAll': setAllExcluded(false); break;
       case 'pickNone': setAllExcluded(true); break;
       case 'importData': importData(); break;
+      case 'saveAsHTML': saveAsHTML(); break;
+      case 'toggleLog': toggleLog(); break;
+      case 'closeLog': closeLog(e, t); break;
+      case 'clearLog': clearLog(); break;
       case 'exportJSON': exportJSON(); break;
       case 'exportCSV': exportCSV(); break;
       case 'resetData': resetData(); break;
@@ -1675,7 +1811,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
 
   document.addEventListener('keydown', function(e){
-    if(e.key==='Escape'){ if(state.pickerOpen){ state.pickerOpen=false; render(); } else if(state.selectedId!=null) closePanel(); }
+    if(e.key==='Escape'){ if(state.logOpen){ state.logOpen=false; render(); } else if(state.pickerOpen){ state.pickerOpen=false; render(); } else if(state.selectedId!=null) closePanel(); }
   });
 
   // ---- dot size slider ----
