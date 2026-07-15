@@ -1574,7 +1574,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var sw = '<span style="flex:none;width:.9em;height:.9em;border-radius:2px;background:'+STATUS[k].color+'"></span>';
       var txt = (showShape ? STATUS[k].mark+' ' : '') + STATUS[k].label;
       return '<span title="'+esc(STATUS[k].label)+'" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B">'+sw+txt+'</span>';
-    }).join('') + '<span title="2026 經理人 KPI 場站" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B"><span style="flex:none;width:.9em;height:.9em;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>2026 經理人 KPI 場站</span>';
+    }).join('') + (state.showKpiBoard!==false ? '<span title="2026 經理人 KPI 場站" style="display:flex;align-items:center;gap:5px;font-size:var(--legend-font,11px);color:#6E787B"><span style="flex:none;width:.9em;height:.9em;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>2026 經理人 KPI 場站</span>' : '');
 
     var sel = find(state.selectedId);
     var groupTitle = state.groupMode==='region' ? '區域 × 現況交叉檢視' : 'CUSS 建置上線時程軸 × 現況交叉檢視';
