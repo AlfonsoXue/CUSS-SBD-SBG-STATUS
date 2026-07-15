@@ -1146,9 +1146,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         + '<div style="display:flex;flex-wrap:wrap;gap:6px">'+chips+'</div>'
         + '</div>';
     }).join('');
-    return '<div style="background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:14px 16px;margin-bottom:14px">'
+    return '<div id="station-picker" style="background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:14px 16px;margin-bottom:14px">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">'
-      +   '<div style="font-size:12px;font-weight:800;color:#00853C">個別場站選取<span style="font-weight:400;color:#8A938F">　點場站代碼可加入／移除；灰色刪除線＝已排除，不納入地圖與矩陣</span></div>'
+      +   '<div style="font-size:12px;font-weight:800;color:#00853C">個別場站選取<span style="font-weight:400;color:#8A938F">　點場站代碼可加入／移除；灰色刪除線＝已排除，不納入地圖與矩陣　·　點空白處收合</span></div>'
       +   '<div style="display:flex;gap:6px">'
       +     '<button data-action="pickAll" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:12px;padding:4px 11px;font-size:11.5px;font-weight:600;cursor:pointer">全選</button>'
       +     '<button data-action="pickNone" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:12px;padding:4px 11px;font-size:11.5px;font-weight:600;cursor:pointer">全不選</button>'
@@ -1433,8 +1433,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     highlightCard(card, false);
   });
 
+  // click outside the open station picker (and not on its toggle) collapses it
+  document.addEventListener('click', function(e){
+    if(!state.pickerOpen) return;
+    var t = e.target;
+    if(t.closest && (t.closest('#station-picker') || t.closest('[data-action="togglePicker"]'))) return;
+    state.pickerOpen = false; render();
+  });
+
   document.addEventListener('keydown', function(e){
-    if(e.key==='Escape' && state.selectedId!=null) closePanel();
+    if(e.key==='Escape'){ if(state.pickerOpen){ state.pickerOpen=false; render(); } else if(state.selectedId!=null) closePanel(); }
   });
 
   // ---- dot size slider ----
