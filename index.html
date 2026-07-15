@@ -446,6 +446,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(c) return c;
     return (a.code||'').localeCompare(b.code||'');
   }
+  function phaseIndex(s){ var i = PHASES.indexOf(s.phase); return i<0 ? PHASES.length : i; }
+  // region view: order by build schedule first, then the completeness tier rule
+  function byPhaseThenAuto(a, b){
+    var d = phaseIndex(a) - phaseIndex(b);
+    if(d) return d;
+    return byAutomation(a, b);
+  }
   function groupList(){
     if(state.groupMode==='region'){
       var regs = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
@@ -453,7 +460,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       // stations with empty region
       if(state.stations.some(function(s){ return !s.region; })) regs.push('');
       return regs.map(function(r){
-        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }).sort(byAutomation) };
+        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }).sort(byPhaseThenAuto) };
       });
     }
     return PHASES.map(function(p){
