@@ -149,6 +149,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(!STATUS[o.cuss]) o.cuss='none';
     if(!STATUS[o.sbd]) o.sbd='none';
     if(!STATUS[o.sbg]) o.sbg='none';
+    if(!o.phase) o.phase = '未排程';          // keep imported stations visible in the phase view
+    if(!o.region) o.region = '未分區';
     return o;
   }
 
@@ -292,6 +294,235 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var csv = '﻿' + [head.map(esc).join(','), rows.join('\r\n')].join('\r\n');
     download('自助化設備狀態.csv', new Blob([csv], {type:'text/csv;charset=utf-8'}));
   }
+
+  // ---- import (JSON / CSV / Excel) ----
+  // reverse map: Chinese status label → internal status key
+  var LABEL2STATUS = {};
+  ORDER.forEach(function(k){ LABEL2STATUS[STATUS[k].label] = k; });
+  // best-effort free-text → status key (for Excel / non-standard CSV cells)
+  function statusFromText(v){
+    var t = String(v==null?'':v).trim();
+    if(!t) return 'none';
+    if(LABEL2STATUS[t]) return LABEL2STATUS[t];
+    if(/暫關|待重啟|暫停|暫緩/.test(t)) return 'paused';
+    if(/無設備|無建置|未建置|未啟用|尚未|沒有|不適用|無規劃|n\/?a|^x$|^-+$|^—+$|^無$/i.test(t)) return 'none';
+    if(/評估|規劃|協調|洽談|爭取|待場站|研議|討論/.test(t)) return 'evaluating';
+    if(/建置|測試|進行|施工|導入|開發|安裝|認證|申請|準備|就位|待啟用/.test(t)) return 'building';
+    if(/上線|啟用|已完成|完成|使用中|運作|正常|已建置|開通|已導入|✓|yes/i.test(t)) return 'online';
+    if(/^(有|是|v|y|1|●)$/i.test(t)) return 'online';
+    return 'none';
+  }
+  function truthy(v){ return /^(是|有|y|yes|true|v|✓|1|●|kpi)$/i.test(String(v==null?'':v).trim()); }
+
+  // minimal RFC-4180 CSV parser (handles quotes, commas, CRLF, BOM)
+  function parseCSV(text){
+    if(text.charCodeAt(0)===0xFEFF) text = text.slice(1);
+    var rows=[], row=[], cur='', inQ=false, i=0;
+    while(i<text.length){
+      var c=text[i];
+      if(inQ){
+        if(c==='"'){ if(text[i+1]==='"'){ cur+='"'; i+=2; continue; } inQ=false; i++; continue; }
+        cur+=c; i++; continue;
+      }
+      if(c==='"'){ inQ=true; i++; continue; }
+      if(c===','){ row.push(cur); cur=''; i++; continue; }
+      if(c==='\r'){ i++; continue; }
+      if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; i++; continue; }
+      cur+=c; i++;
+    }
+    if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+    return rows.filter(function(r){ return r.some(function(c){ return String(c).trim()!==''; }); });
+  }
+
+  // classify an Excel/CSV header cell → our field key (fuzzy, keyword based)
+  function classifyHeader(h){
+    h = String(h==null?'':h);
+    if(!h.trim()) return null;
+    var vendor=/系統商|廠商|供應商|vendor/i.test(h), date=/時程|日期|啟用|上線日|預計|完成日|date/i.test(h);
+    if(/cuss/i.test(h)){ return vendor?'cussVendor':(date?'cussDate':'cuss'); }
+    if(/sbd/i.test(h)){ return vendor?'sbdVendor':(date?'sbdDate':'sbd'); }
+    if(/sbg/i.test(h)){ return vendor?'sbgVendor':'sbg'; }
+    if(/行李條/.test(h)) return 'bagTag';
+    if(/區域|地區|region|洲/.test(h)) return 'region';
+    if(/期別|梯次|階段|波段|建置時程|預計時程|排程時程|上線時程|啟用時程/.test(h)) return 'phase';
+    if(/kpi|經理人/i.test(h)) return 'kpi';
+    if(/航班/.test(h)) return 'flights';
+    if(/旅客/.test(h)) return 'pax';
+    if(/排程備註|排程說明/.test(h)) return 'schedNote';
+    if(/備註|進度|說明|現況|狀況|情形|note|remark/i.test(h)) return 'note';
+    return null;
+  }
+  var CODE_RE = /^[A-Za-z]{3}$/;
+
+  function readTextFile(file, cb){
+    var r=new FileReader();
+    r.onload=function(){ cb(String(r.result||'')); };
+    r.onerror=function(){ window.alert('讀取檔案失敗。'); };
+    r.readAsText(file, 'utf-8');
+  }
+  function importFromJSONText(text){
+    var arr;
+    try{ arr = JSON.parse(text); }catch(e){ window.alert('JSON 解析失敗：格式不正確。'); return; }
+    if(!Array.isArray(arr) && arr && Array.isArray(arr.stations)) arr = arr.stations;
+    if(!Array.isArray(arr)){ window.alert('JSON 內容不是場站陣列。'); return; }
+    var recs = arr.filter(function(o){ return o && (o.code); }).map(function(o){
+      var rec={}; for(var k in o) rec[k]=o[k]; rec.code=String(o.code).trim().toUpperCase(); return rec;
+    });
+    applyImport(recs, 'replace', 'JSON');
+  }
+  function importFromCSVText(text){
+    var rows = parseCSV(text);
+    if(rows.length<2){ window.alert('CSV 沒有可匯入的資料列。'); return; }
+    var head = rows[0].map(function(h){ return String(h).trim(); });
+    var col = {}; head.forEach(function(h,i){ if(col[h]==null) col[h]=i; });
+    function g(r,name){ return col[name]!=null ? r[col[name]] : ''; }
+    var recs = rows.slice(1).map(function(r){
+      var code = String(g(r,'場站')||'').trim().toUpperCase();
+      if(!CODE_RE.test(code)) return null;
+      var rec = { code:code };
+      if(g(r,'區域')!=='') rec.region = String(g(r,'區域')).trim();
+      if(g(r,'建置時程')!=='') rec.phase = String(g(r,'建置時程')).trim();
+      rec.cuss = statusFromText(g(r,'CUSS'));
+      rec.sbd  = statusFromText(g(r,'SBD'));
+      rec.sbg  = statusFromText(g(r,'SBG'));
+      if(g(r,'CUSS系統商')!=='') rec.cussVendor = String(g(r,'CUSS系統商')).trim();
+      if(g(r,'SBD系統商')!=='')  rec.sbdVendor  = String(g(r,'SBD系統商')).trim();
+      if(g(r,'SBG系統商')!=='')  rec.sbgVendor  = String(g(r,'SBG系統商')).trim();
+      if(g(r,'CUSS時程')!=='')   rec.cussDate = String(g(r,'CUSS時程')).trim();
+      if(g(r,'SBD時程')!=='')    rec.sbdDate  = String(g(r,'SBD時程')).trim();
+      if(col['行李條列印']!=null) rec.bagTag = truthy(g(r,'行李條列印'));
+      if(col['KPI']!=null)       rec.kpi    = truthy(g(r,'KPI'));
+      var fl=+String(g(r,'航班量')).replace(/[^\d.]/g,''); if(fl) rec.flights=fl;
+      var px=+String(g(r,'旅客量')).replace(/[^\d.]/g,''); if(px) rec.pax=px;
+      if(g(r,'各站進度')!=='') rec.note = String(g(r,'各站進度'));
+      if(g(r,'排程備註')!=='') rec.schedNote = String(g(r,'排程備註'));
+      return rec;
+    }).filter(Boolean);
+    applyImport(recs, 'replace', 'CSV');
+  }
+
+  var _xlsx = null;
+  function loadXLSX(){
+    if(window.XLSX) return Promise.resolve(window.XLSX);
+    if(_xlsx) return _xlsx;
+    _xlsx = new Promise(function(res, rej){
+      var s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=function(){ res(window.XLSX); };
+      s.onerror=function(){ rej(new Error('load failed')); };
+      document.head.appendChild(s);
+    });
+    return _xlsx;
+  }
+  function rowToRec(row, hMap){
+    var code = hMap.code!=null ? String(row[hMap.code]==null?'':row[hMap.code]).trim() : '';
+    if(!CODE_RE.test(code)){
+      for(var i=0;i<row.length;i++){ var v=String(row[i]==null?'':row[i]).trim(); if(CODE_RE.test(v)){ code=v; break; } }
+    }
+    if(!CODE_RE.test(code)) return null;
+    var rec = { code:code.toUpperCase() };
+    ['region','phase','cussVendor','cussDate','sbdVendor','sbdDate','sbgVendor','note','schedNote'].forEach(function(f){
+      if(hMap[f]!=null){ var v=row[hMap[f]]; if(v!=null && String(v).trim()!=='') rec[f]=String(v).trim(); }
+    });
+    ['cuss','sbd','sbg'].forEach(function(f){
+      if(hMap[f]!=null){ var v=row[hMap[f]]; if(v!=null && String(v).trim()!=='') rec[f]=statusFromText(v); }
+    });
+    if(hMap.kpi!=null && String(row[hMap.kpi]||'').trim()!=='') rec.kpi = truthy(row[hMap.kpi]);
+    if(hMap.bagTag!=null && String(row[hMap.bagTag]||'').trim()!=='') rec.bagTag = truthy(row[hMap.bagTag]);
+    if(hMap.flights!=null){ var fl=+String(row[hMap.flights]).replace(/[^\d.]/g,''); if(fl) rec.flights=fl; }
+    if(hMap.pax!=null){ var px=+String(row[hMap.pax]).replace(/[^\d.]/g,''); if(px) rec.pax=px; }
+    return rec;
+  }
+  // parse either original Excel (全球自動化綜整 / CUSS排程) — fuzzy header detection,
+  // merged across every worksheet by station code.
+  function parseWorkbook(XLSX, wb){
+    var all = {};
+    (wb.SheetNames||[]).forEach(function(name){
+      var ws = wb.Sheets[name]; if(!ws) return;
+      var arr = XLSX.utils.sheet_to_json(ws, { header:1, blankrows:false, defval:'' });
+      if(!arr.length) return;
+      // pick the header row within the first few rows (most classifiable cells)
+      var hRow=-1, hMap=null, best=0;
+      for(var i=0;i<Math.min(arr.length,10);i++){
+        var m={}, score=0;
+        arr[i].forEach(function(cell,ci){
+          var f=classifyHeader(cell); if(f && m[f]==null){ m[f]=ci; score++; }
+          if(m.code==null && /場站|機場|站別|代碼|站碼|iata|airport|station|港站/i.test(String(cell))) m.code=ci;
+        });
+        var s = score + (m.code!=null?1:0);
+        if(s>best){ best=s; hRow=i; hMap=m; }
+      }
+      if(hRow<0 || !hMap || best<2) return;
+      for(var r=hRow+1;r<arr.length;r++){
+        var rec = rowToRec(arr[r]||[], hMap);
+        if(rec && rec.code){
+          if(!all[rec.code]) all[rec.code] = { code:rec.code };
+          for(var k in rec){ if(k==='code') continue; var v=rec[k]; if(v==null||v==='') continue; all[rec.code][k]=v; }
+        }
+      }
+    });
+    return Object.keys(all).map(function(c){ return all[c]; });
+  }
+  function importFromExcel(file){
+    loadXLSX().then(function(XLSX){
+      var r=new FileReader();
+      r.onload=function(){
+        try{
+          var wb = XLSX.read(new Uint8Array(r.result), { type:'array' });
+          var recs = parseWorkbook(XLSX, wb);
+          if(!recs.length){ window.alert('無法從此 Excel 辨識出場站資料。\n請確認檔案含有場站代碼與 CUSS／SBD／SBG 欄位，或改用匯出的 JSON／CSV 匯入。'); return; }
+          applyImport(recs, 'merge', 'Excel（'+file.name+'）');
+        }catch(err){ window.alert('Excel 解析失敗：'+(err&&err.message||err)); }
+      };
+      r.onerror=function(){ window.alert('讀取 Excel 檔案失敗。'); };
+      r.readAsArrayBuffer(file);
+    }).catch(function(){ window.alert('無法載入 Excel 解析元件（需連線）。\n離線時請改用匯出的 JSON／CSV 匯入。'); });
+  }
+  // apply parsed records — replace (full JSON/CSV) or merge-by-code (partial Excel)
+  function applyImport(recs, mode, srcLabel){
+    if(!recs || !recs.length){ window.alert('未從 '+srcLabel+' 解析到任何場站資料。'); return; }
+    var msg = mode==='replace'
+      ? '已從 '+srcLabel+' 解析 '+recs.length+' 個場站。\n\n要「取代」目前 '+state.stations.length+' 個場站嗎？（現有資料將被覆蓋，可用「重設」還原原始資料庫）'
+      : '已從 '+srcLabel+' 解析 '+recs.length+' 個場站。\n\n要「合併更新」至目前資料嗎？（相同場站代碼更新其欄位，新代碼則新增）';
+    if(!window.confirm(msg)) return;
+    var stations, added=0, updated=0;
+    if(mode==='replace'){
+      nid=1;
+      stations = recs.map(function(r){ var o=normalize(r); o.id=nid++; return o; });
+    }else{
+      stations = state.stations.map(function(s){ var n={}; for(var k in s) n[k]=s[k]; return n; });
+      var idxByCode={}; stations.forEach(function(s,i){ idxByCode[s.code]=i; });
+      var maxId=stations.reduce(function(m,s){ return Math.max(m, s.id||0); }, 0); nid=maxId+1;
+      recs.forEach(function(r){
+        if(idxByCode[r.code]!=null){
+          var tgt=stations[idxByCode[r.code]];
+          for(var k in r){ if(k==='code') continue; var v=r[k]; if(v==null||v==='') continue; tgt[k]=v; }
+          var nn=normalize(tgt); nn.id=tgt.id; stations[idxByCode[r.code]]=nn; updated++;
+        }else{
+          var o=normalize(r); o.id=nid++; stations.push(o); idxByCode[o.code]=stations.length-1; added++;
+        }
+      });
+    }
+    save(stations); state.stations=stations; state.selectedId=null;
+    state.filters={ region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} };
+    state.pickerOpen=false; render();
+    window.alert('匯入完成：目前共 '+stations.length+' 個場站'+(mode==='merge'?('（更新 '+updated+'、新增 '+added+'）'):'')+'。');
+  }
+  function importData(){
+    var inp=document.createElement('input');
+    inp.type='file';
+    inp.accept='.json,.csv,.xlsx,.xls,application/json,text/csv';
+    inp.onchange=function(){
+      var f=inp.files && inp.files[0]; if(!f) return;
+      var name=(f.name||'').toLowerCase();
+      if(/\.json$/.test(name)) readTextFile(f, importFromJSONText);
+      else if(/\.csv$/.test(name)) readTextFile(f, importFromCSVText);
+      else if(/\.(xlsx|xlsm|xls)$/.test(name)) importFromExcel(f);
+      else window.alert('不支援的檔案格式。\n請選擇 JSON、CSV 或 Excel（.xlsx／.xls）。');
+    };
+    inp.click();
+  }
+
   var _h2c = null;
   function loadH2C(){
     if(window.html2canvas) return Promise.resolve(window.html2canvas);
@@ -1279,7 +1510,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<button data-action="addStation" style="border:none;background:#00853C;color:#fff;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">＋ 新增場站</button>'
       +     quickBtn
       +     '<button data-action="exportPNG" style="border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出圖片</button>'
-      +     '<button data-action="exportJSON" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 JSON</button>'
+      +     '<button data-action="importData" title="匯入 JSON／CSV（覆蓋）或原始 Excel 檔（合併更新）" style="border:1.5px solid #00853C;background:#fff;color:#00853C;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">匯入資料</button>'
+      +     '<button data-action="exportJSON" title="下載目前資料為 JSON（可作為存檔，日後由「匯入資料」還原）" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 JSON</button>'
       +     '<button data-action="exportCSV" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 CSV</button>'
       +     '<button data-action="resetData" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
       +   '</div>'
@@ -1348,6 +1580,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'toggleExclude': toggleExclude(id); break;
       case 'pickAll': setAllExcluded(false); break;
       case 'pickNone': setAllExcluded(true); break;
+      case 'importData': importData(); break;
       case 'exportJSON': exportJSON(); break;
       case 'exportCSV': exportCSV(); break;
       case 'resetData': resetData(); break;
