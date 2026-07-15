@@ -123,17 +123,28 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var gv = (typeof GEO!=='undefined') ? GEO[o.code] : null;
       o.flights = gv ? gv.flights : 0;
       o.pax = gv ? gv.pax : 0;
+      o.bagTag = deriveBagTag(o.note, o.schedNote);
       return o;
     });
   }
 
-  var FIELDS = ['code','region','phase','kpi','cuss','sbd','sbg','cussVendor','sbdVendor','sbgVendor','cussDate','sbdDate','note','schedNote','flights','pax'];
+  // whether CUSS supports printing baggage tags — inferred from the notes
+  function deriveBagTag(note, sched){
+    var t = (note||'') + ' ' + (sched||'');
+    if(/無開啟列印行李條|無支援列印行李條|無支援行李條列印|不支援列印行李條|無開啟行李條列印/.test(t)) return false;
+    if(/開啟列印行李條|開啟行李條列印|列印行李條功能/.test(t)) return true;
+    return false;
+  }
+
+  var FIELDS = ['code','region','phase','kpi','cuss','sbd','sbg','cussVendor','sbdVendor','sbgVendor','cussDate','sbdDate','note','schedNote','flights','pax','bagTag'];
   var NUMFIELDS = {flights:1, pax:1};
+  var BOOLFIELDS = {kpi:1, bagTag:1};
   function normalize(s){
     var o = {id:s.id};
     FIELDS.forEach(function(f){
       if(NUMFIELDS[f]){ o[f] = (s[f]!=null && s[f]!=='') ? (+s[f]||0) : ((typeof GEO!=='undefined' && GEO[s.code]) ? GEO[s.code][f] : 0); }
-      else o[f] = s[f]!=null ? s[f] : (f==='kpi'?false:'');
+      else if(f==='bagTag'){ o[f] = (s[f]!=null) ? !!s[f] : deriveBagTag(s.note, s.schedNote); }
+      else o[f] = s[f]!=null ? s[f] : (BOOLFIELDS[f]?false:'');
     });
     if(!STATUS[o.cuss]) o.cuss='none';
     if(!STATUS[o.sbd]) o.sbd='none';
@@ -253,12 +264,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     download('自助化設備狀態.json', new Blob([JSON.stringify(out, null, 2)], {type:'application/json'}));
   }
   function exportCSV(){
-    var head = ['場站','區域','建置時程','CUSS','CUSS系統商','CUSS時程','SBD','SBD系統商','SBD時程','SBG','SBG系統商','KPI','航班量','旅客量','自動化完備度','定位象限','各站進度','排程備註'];
+    var head = ['場站','區域','建置時程','CUSS','CUSS系統商','CUSS時程','行李條列印','SBD','SBD系統商','SBD時程','SBG','SBG系統商','KPI','航班量','旅客量','自動化完備度','定位象限','各站進度','排程備註'];
     var L = STATUS;
     var esc = function(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; };
     var rows = state.stations.map(function(s){
       var q = quadrantOf(s);
-      return [s.code, s.region, s.phase, L[s.cuss].label, s.cussVendor, s.cussDate,
+      return [s.code, s.region, s.phase, L[s.cuss].label, s.cussVendor, s.cussDate, s.bagTag?'是':'',
               L[s.sbd].label, s.sbdVendor, s.sbdDate, L[s.sbg].label, s.sbgVendor,
               s.kpi?'是':'', s.flights, s.pax, Math.round(automationScore(s)*100)+'%', q.name,
               s.note, s.schedNote].map(esc).join(',');
@@ -381,15 +392,22 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return v ? '<span style="position:absolute;bottom:14px;right:4px;font-size:8px;font-weight:700;color:'+ 'rgba(255,255,255,.9)' +';letter-spacing:.3px">'+esc(v)+'</span>' : '';
   }
 
+  function bagTagIcon(){
+    return '<span title="CUSS 支援列印行李條" style="position:absolute;top:3px;left:3px;width:15px;height:15px;border-radius:4px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;pointer-events:none">'
+      + '<svg width="10" height="10" viewBox="0 0 16 16"><rect x="3.2" y="2" width="9.6" height="12" rx="2" fill="none" stroke="#00853C" stroke-width="1.3"/><circle cx="8" cy="4.4" r="1" fill="#00853C"/><line x1="5.4" y1="7.4" x2="10.6" y2="7.4" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/><line x1="5.4" y1="9.5" x2="10.6" y2="9.5" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/><line x1="5.4" y1="11.6" x2="9" y2="11.6" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/></svg>'
+      + '</span>';
+  }
   function chipHTML(s){
-    var kpiDot = s.kpi ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C"></span>' : '';
+    var kpiDot = s.kpi ? '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:#fff;border:1.4px solid #00853C;pointer-events:none"></span>' : '';
+    var bagIcon = s.bagTag ? bagTagIcon() : '';
     var ring = s.id===state.selectedId ? '#00853C' : '#FFFFFF';
-    var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85">'+esc(s.cussVendor)+'</span>' : '';
+    var vt = (s.cussVendor && (s.cuss==='online'||s.cuss==='building')) ? '<span style="position:absolute;top:22px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;color:'+STATUS[s.cuss].textOn+';opacity:.85;pointer-events:none">'+esc(s.cussVendor)+'</span>' : '';
     return '<div class="chip" data-tip="'+s.id+'" style="position:relative;width:78px;height:48px;border-radius:7px;overflow:hidden;border:1.5px solid '+ring+';cursor:pointer;box-shadow:0 1px 2px rgba(20,40,30,.14)">'
       + '<div data-action="chipTop" data-id="'+s.id+'" style="height:35px;background:'+STATUS[s.cuss].color+';display:flex;align-items:center;justify-content:center;color:'+STATUS[s.cuss].textOn+';font-family:system-ui,sans-serif;font-weight:700;font-size:15px;letter-spacing:.5px;line-height:1">'+esc(s.code)+'</div>'
       + vt
       + '<div data-action="chipBot" data-id="'+s.id+'" style="height:13px;background:'+STATUS[s.sbd].color+'"></div>'
       + kpiDot
+      + bagIcon
       + '</div>';
   }
 
@@ -488,6 +506,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +       '</div>'
       +       '<span style="flex:none;width:44px;height:25px;border-radius:13px;background:'+kpiBg+';position:relative;transition:background .18s ease"><span style="position:absolute;top:3px;left:'+kpiKnob+';width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .18s ease"></span></span>'
       +     '</div>'
+      +     '<div data-action="toggleBagTag" data-id="'+sel.id+'" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #DFE3E4;border-radius:10px;cursor:pointer">'
+      +       '<div style="display:flex;align-items:center;gap:10px">'
+      +         '<span style="flex:none;width:26px;height:26px;border-radius:6px;background:#F3F7F4;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 16 16"><rect x="3.2" y="2" width="9.6" height="12" rx="2" fill="none" stroke="#00853C" stroke-width="1.3"/><circle cx="8" cy="4.4" r="1" fill="#00853C"/><line x1="5.4" y1="7.4" x2="10.6" y2="7.4" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/><line x1="5.4" y1="9.5" x2="10.6" y2="9.5" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/><line x1="5.4" y1="11.6" x2="9" y2="11.6" stroke="#00853C" stroke-width="1.1" stroke-linecap="round"/></svg></span>'
+      +         '<div style="display:flex;flex-direction:column;gap:2px">'
+      +           '<span style="font-size:13px;font-weight:700;color:#141819">CUSS 列印行李條功能</span>'
+      +           '<span style="font-size:11px;color:#8A938F">標記後方塊左上角顯示行李條示意圖</span>'
+      +         '</div>'
+      +       '</div>'
+      +       '<span style="flex:none;width:44px;height:25px;border-radius:13px;background:'+(sel.bagTag?'#00853C':'#C7CDCF')+';position:relative;transition:background .18s ease"><span style="position:absolute;top:3px;left:'+(sel.bagTag?'22px':'3px')+';width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .18s ease"></span></span>'
+      +     '</div>'
       +     '<div style="display:flex;flex-direction:column;gap:8px">'
       +       '<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:11px;font-weight:700;color:#515A5D">旅客量 / 航班量（定位矩陣用）</span>'
       +         '<span style="font-size:10.5px;font-weight:700;color:'+quadrantOf(sel).color+';background:'+quadrantOf(sel).tint+';border-radius:10px;padding:2px 9px">'+quadrantOf(sel).name+'</span></div>'
@@ -579,11 +607,33 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
+  // Nudge overlapping labels apart (box separation) with a weak spring back to
+  // each dot, so uncrowded labels stay put and crowded ones fan out.
+  function layoutLabels(items){
+    var N = items.length, i, j, it;
+    for(it=0; it<70; it++){
+      for(i=0;i<N;i++){
+        for(j=i+1;j<N;j++){
+          var a=items[i], b=items[j];
+          var dx=a.lx-b.lx, dy=a.ly-b.ly;
+          var ox=(a.w+b.w)/2 + 1.4 - Math.abs(dx);
+          var oy=(a.h+b.h)/2 + 1.0 - Math.abs(dy);
+          if(ox>0 && oy>0){
+            if(ox<oy){ var s1=(dx===0?(i&1?1:-1):(dx>0?1:-1))*ox*0.5; a.lx+=s1; b.lx-=s1; }
+            else     { var s2=(dy===0?(i&1?1:-1):(dy>0?1:-1))*oy*0.5; a.ly+=s2; b.ly-=s2; }
+          }
+        }
+      }
+      for(i=0;i<N;i++){ it=items[i]; it.lx += (it.hx-it.lx)*0.05; it.ly += (it.hy-it.ly)*0.05; }
+    }
+  }
+
   function mapSVGHTML(){
     var visible = filteredStations();
     var ocean = state.mapTheme==='dark' ? '#161E22' : '#EAF1F4';
     var stroke = state.mapTheme==='dark' ? '#0E1417' : '#FFFFFF';
     var dotStroke = state.mapTheme==='dark' ? '#0E1417' : '#fff';
+    var leadStroke = state.mapTheme==='dark' ? '#6C7A72' : '#8A968F';
     var sc = state.dotScale;
     var names = state.showNames;
     var twoTone = state.dotColor==='cuss';
@@ -594,7 +644,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     // sort so smaller (lower pax) dots draw first, big hubs on top
     var ss = visible.slice().filter(function(s){ return GEO[s.code]||(s.lat!=null); });
     ss.sort(function(a,b){ return (a.pax||0)-(b.pax||0); });
-    var defs = '', dots = '';
+    // label font in world units scales with zoom so on-screen size stays ~constant
+    // → zooming into a dense cluster genuinely de-crowds the labels
+    var vbNow = state.mapVB;
+    var labelFS = Math.max(2.6, Math.min(16, 9.5 * (vbNow.w / BASE_VB.w)));
+    var defs = '', dots = '', labelItems = [];
     ss.forEach(function(s){
       var g = GEO[s.code]; if(!g) return;
       var p = mproj(g.lat, g.lon), cx = +p.x.toFixed(1), cy = +p.y.toFixed(1);
@@ -617,17 +671,30 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       }
       var selRing = s.id===state.selectedId ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>' : '';
       var kpiRing = (s.kpi && state.showKpiRing) ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>' : '';
-      var label = '';
+      dots += '<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>';
       if(names){
-        var fs = Math.max(6, Math.min(15, R*0.9));
-        var ly = (twoTone ? (cy - R + R*cussFrac) : cy) + fs*0.34;
-        label = '<text x="'+cx+'" y="'+ly.toFixed(1)+'" text-anchor="middle" font-size="'+fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.6)" stroke-width="'+(fs*0.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(s.code)+'</text>';
+        var hy = twoTone ? (cy - R + R*cussFrac) : cy;   // home = on the dot (CUSS band)
+        labelItems.push({ s:s, cx:cx, cy:cy, fs:labelFS, hx:cx, hy:hy, lx:cx, ly:hy,
+                          w: s.code.length*labelFS*0.62, h: labelFS });
       }
-      dots += '<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+label+'</g>';
     });
+    // de-collide labels and draw leader lines for the ones that got pulled out
+    var leaders = '', labels = '';
+    if(names && labelItems.length){
+      layoutLabels(labelItems);
+      labelItems.forEach(function(m){
+        var moved = Math.abs(m.lx-m.hx) + Math.abs(m.ly-m.hy) > 1.6;
+        if(moved){
+          leaders += '<line x1="'+m.cx.toFixed(1)+'" y1="'+m.cy.toFixed(1)+'" x2="'+m.lx.toFixed(1)+'" y2="'+m.ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="0.55" stroke-opacity="0.85"/>'
+            + '<circle cx="'+m.lx.toFixed(1)+'" cy="'+m.ly.toFixed(1)+'" r="0.9" fill="'+leadStroke+'"/>';
+        }
+        var by = (m.ly + m.fs*0.34).toFixed(1);
+        labels += '<text x="'+m.lx.toFixed(1)+'" y="'+by+'" text-anchor="middle" font-size="'+m.fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(m.fs*0.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>';
+      });
+    }
     var vb = state.mapVB;
     return '<svg id="worldmap" viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:none;cursor:grab" xmlns="http://www.w3.org/2000/svg">'
-      + '<defs>'+defs+'</defs>' + land + dots + '</svg>';
+      + '<defs>'+defs+'</defs>' + land + leaders + dots + labels + '</svg>';
   }
 
   function mapPanelHTML(){
@@ -906,6 +973,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function showTip(s, x, y){
     var head = '<div style="font-size:14px;font-weight:800;letter-spacing:.5px">'+esc(s.code)
       + (s.kpi?' <span style="font-size:9px;color:#8FE3B6;border:1px solid #8FE3B6;border-radius:6px;padding:0 4px;vertical-align:middle">KPI</span>':'')
+      + (s.bagTag?' <span style="font-size:9px;color:#EAD7A0;border:1px solid #EAD7A0;border-radius:6px;padding:0 4px;vertical-align:middle">行李條</span>':'')
       + '</div>'
       + '<div style="font-size:10.5px;color:#9DB3A8;margin-bottom:5px">'+esc(s.region||'—')+' · '+esc(s.phase)+'</div>';
     var rows = tipRow('CUSS',s,'cuss','cussVendor','cussDate')+tipRow('SBD',s,'sbd','sbdVendor','sbdDate')+tipRow('SBG',s,'sbg','sbgVendor',null);
@@ -959,6 +1027,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'resetMapView': resetMapView(); break;
       case 'select': if(mapPanned){ mapPanned=false; break; } select(id); break;
       case 'toggleKpi': var s=find(id); if(s) setField(id,'kpi',!s.kpi); break;
+      case 'toggleBagTag': var sb=find(id); if(sb) setField(id,'bagTag',!sb.bagTag); break;
       case 'setField': setField(id, t.getAttribute('data-field'), t.getAttribute('data-val')); break;
       case 'chipTop':
         if(state.quickMode){ hideTip(); cycle(id,'cuss'); } else select(id);
@@ -1030,9 +1099,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
   document.addEventListener('pointerup', function(){
     if(!mapDrag) return;
-    if(mapDrag.moved > 4) mapPanned = true;
+    var panned = mapDrag.moved > 4;
+    if(panned) mapPanned = true;
     var svg = document.getElementById('worldmap'); if(svg) svg.style.cursor = 'grab';
     mapDrag = null;
+    // re-run label de-collision for the new view when names are shown
+    if(panned && state.showNames) render();
   });
   document.addEventListener('wheel', function(e){
     var svg = e.target.closest ? e.target.closest('#worldmap') : null;
@@ -1045,8 +1117,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var nw = Math.max(120, Math.min(1600, vb.w*k));
     var nh = nw * VB_RATIO;
     state.mapVB = { x: px - fx*nw, y: py - fy*nh, w: nw, h: nh };
-    applyMapVB();
+    // recompute label layout for the new zoom when names are shown (discrete wheel
+    // steps, so a full re-render is fine); otherwise just move the viewBox.
+    if(state.showNames){ if(!wheelRAF) wheelRAF = requestAnimationFrame(function(){ wheelRAF=0; render(); }); }
+    else applyMapVB();
   }, { passive:false });
+  var wheelRAF = 0;
 
   render();
 })();
