@@ -308,10 +308,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function exportPNG(targetId, filename){
     var el = document.getElementById(targetId || 'cuss-board');
     if(!el) return;
+    // higher-resolution export: target ~4× device pixels, but cap the scale so the
+    // output stays within the browser's max canvas dimension (~16384px).
+    var rect = el.getBoundingClientRect();
+    var MAX_DIM = 16384;
+    var want = Math.max(4, Math.ceil((window.devicePixelRatio || 1) * 2));
+    var fit = Math.floor(MAX_DIM / Math.max(rect.width || 1, rect.height || 1));
+    var scale = Math.max(2, Math.min(want, fit || want));
     loadH2C().then(function(h2c){
-      return h2c(el, { scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false,
+      return h2c(el, { scale:scale, backgroundColor:'#ffffff', useCORS:true, logging:false,
                        ignoreElements:function(node){ return node.getAttribute && node.getAttribute('data-noshot')==='1'; } }).then(function(canvas){
-        canvas.toBlob(function(b){ if(b) download(filename || '自助化設備儀表板.png', b); });
+        canvas.toBlob(function(b){ if(b) download(filename || '自助化設備儀表板.png', b); }, 'image/png');
       });
     }).catch(function(){
       window.alert('圖片匯出失敗（可能無法連線載入匯出元件），請改用匯出 JSON／CSV 功能。');
