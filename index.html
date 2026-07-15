@@ -169,7 +169,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapVB: { x:0, y:12, w:1000, h:408 },
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapVB: { x:0, y:12, w:1000, h:408 },
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -217,6 +217,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setKpiRing(on){ state.showKpiRing = on; render(); }
   function setShowNames(on){ state.showNames = on; render(); }
   function setMapNameScale(v){ state.mapNameScale = Math.max(0.6, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
+  function setMapLegendFont(v){ state.mapLegendFont = Math.max(8, Math.min(20, Math.round(v||11))); render(); }
   function setDotScale(v){ state.dotScale = v; render(); }
   function toggleComboMenu(){ state.comboOpen = !state.comboOpen; render(); }
   function closeComboMenu(){ state.comboOpen = false; render(); }
@@ -237,7 +238,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function resetMapView(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; render(); }
   // restore map zoom/pan, circle size and station-name font size to defaults
-  function resetMapDefaults(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; state.mapNameScale = 1; render(); }
+  function resetMapDefaults(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; render(); }
   function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
   function setFilter(k, v){ state.filters[k] = v; render(); }
   function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
@@ -741,6 +742,15 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var active = cur===val;
     return '<button data-action="'+action+'" '+dataAttr+'="'+val+'" style="border:1px solid '+(active?'#00853C':'#DFE3E4')+';background:'+(active?'#00853C':'#fff')+';color:'+(active?'#fff':'#515A5D')+';border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">'+label+'</button>';
   }
+  // iOS-style on/off switch. Clicking sends the OPPOSITE value so the existing
+  // on/off action handler flips the state.
+  function switchToggle(action, dataAttr, on){
+    var track = on ? '#00853C' : '#C7CDCF';
+    var knobX = on ? '18px' : '2px';
+    return '<button data-action="'+action+'" '+dataAttr+'="'+(on?'off':'on')+'" role="switch" aria-checked="'+on+'" title="'+(on?'開啟':'關閉')+'" style="position:relative;flex:none;width:38px;height:22px;border-radius:11px;border:none;background:'+track+';cursor:pointer;padding:0;transition:background .15s">'
+      + '<span style="position:absolute;top:2px;left:'+knobX+';width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.28);transition:left .15s;pointer-events:none"></span>'
+      + '</button>';
+  }
 
   // ---- map ----
   var MW = 1000, MH = 500;
@@ -923,10 +933,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var legendItems = (state.dotColor==='cuss'
       ? ORDER.map(function(k){ return {c:STATUS[k].color, t:STATUS[k].label}; })
       : [{c:'#3E7CB1',t:'美洲'},{c:'#2E8B57',t:'歐洲'},{c:'#E8A400',t:'東南亞'},{c:'#C0392B',t:'東北亞'},{c:'#8E44AD',t:'大陸'},{c:'#16A085',t:'港澳'},{c:'#00853C',t:'台灣區'},{c:'#D35400',t:'紐澳'}]
-    ).map(function(o){ return '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:10px;height:10px;border-radius:50%;background:'+o.c+'"></span>'+o.t+'</span>'; }).join('');
+    ).map(function(o){ return '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;width:.9em;height:.9em;border-radius:50%;background:'+o.c+'"></span>'+o.t+'</span>'; }).join('');
 
     var nShown = filteredStations().length, nTot = state.stations.length;
-    return '<section id="map-export" style="flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
+    return '<section id="map-export" style="--map-legend-font:'+state.mapLegendFont+'px;flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">'
       +   '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div style="font-size:16px;font-weight:900;color:#00853C">全球場站分布圖</div>'
       +   '<div style="font-size:11px;color:#6E787B">顯示 '+nShown+' / '+nTot+' 站</div></div>'
@@ -936,14 +946,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">深淺</span>'+pill('mapTheme','data-theme','light',state.mapTheme,'淺色')+pill('mapTheme','data-theme','dark',state.mapTheme,'深色')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">區域配色</span>'+pill('mapPalette','data-pal','region',state.mapPalette,'彩色分區')+pill('mapPalette','data-pal','mono',state.mapPalette,'灰階')+pill('mapPalette','data-pal','brand',state.mapPalette,'品牌綠')+pill('mapPalette','data-pal','coverage',state.mapPalette,'依覆蓋率')+'</div>'
       +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">圓點著色</span>'+pill('dotColor','data-dc','cuss',state.dotColor,'現況（上CUSS／下SBD）')+pill('dotColor','data-dc','region',state.dotColor,'所屬區域')+'</div>'
-      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">場站名稱</span>'+pill('showNames','data-sn','on',state.showNames?'on':'off','顯示')+pill('showNames','data-sn','off',state.showNames?'on':'off','隱藏')+'</div>'
-      +   '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:700;color:#515A5D">KPI 白框</span>'+pill('kpiRing','data-kr','on',state.showKpiRing?'on':'off','顯示')+pill('kpiRing','data-kr','off',state.showKpiRing?'on':'off','隱藏')+'</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">場站名稱</span>'+switchToggle('showNames','data-sn',state.showNames)+'</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">KPI 白框</span>'+switchToggle('kpiRing','data-kr',state.showKpiRing)+'</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;color:#515A5D">圖例大小</span>'
+      +     '<input type="range" min="8" max="20" step="1" value="'+state.mapLegendFont+'" data-maplegendsize style="width:100px;accent-color:#00853C;cursor:pointer" />'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+state.mapLegendFont+'px</span>'
+      +   '</div>'
       + '</div>'
       + mapSVGHTML()
       + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid #E4EBE6">'
-      +   '<span style="font-size:11px;font-weight:700;color:#6E787B">圖例</span>'+legendItems
-      +   (state.dotColor==='cuss' ? '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;overflow:hidden;border:1px solid #DDE4E0"><span style="display:block;height:64%;background:#00853C"></span><span style="display:block;height:36%;background:#E8A400"></span></span>上＝CUSS／下＝SBD</span>' : '')
-      +   (state.showKpiRing ? '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6E787B"><span style="width:12px;height:12px;border-radius:50%;background:#C7CDCF;border:1.4px solid #fff;box-shadow:0 0 0 1px #C7CDCF"></span>白框＝KPI</span>' : '')
+      +   '<span style="font-size:var(--map-legend-font,11px);font-weight:700;color:#6E787B">圖例</span>'+legendItems
+      +   (state.dotColor==='cuss' ? '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;display:inline-block;width:1.1em;height:1.1em;border-radius:50%;overflow:hidden;border:1px solid #DDE4E0"><span style="display:block;height:64%;background:#00853C"></span><span style="display:block;height:36%;background:#E8A400"></span></span>上＝CUSS／下＝SBD</span>' : '')
+      +   (state.showKpiRing ? '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;width:1.1em;height:1.1em;border-radius:50%;background:#C7CDCF;border:1.4px solid #fff;box-shadow:0 0 0 1px #C7CDCF"></span>白框＝KPI</span>' : '')
       + '</div>'
       + '</section>';
   }
@@ -1356,6 +1370,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var t = e.target;
     if(t.getAttribute && t.getAttribute('data-dotsize')!==null){ setDotScale(+t.value); return; }
     if(t.getAttribute && t.getAttribute('data-mapnamesize')!==null){ setMapNameScale(+t.value); return; }
+    if(t.getAttribute && t.getAttribute('data-maplegendsize')!==null){ setMapLegendFont(+t.value); return; }
     var flt = t.getAttribute && t.getAttribute('data-filter');
     if(flt){ setFilter(flt, t.value); return; }
     var inp = t.getAttribute && t.getAttribute('data-input');
@@ -1422,6 +1437,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(t.getAttribute('data-dotsize')!==null || t.getAttribute('data-mapnamesize')!==null){
       var lbl = t.parentElement && t.parentElement.querySelector('span:last-child');
       if(lbl) lbl.textContent = Math.round((+t.value)*100)+'%';
+      return;
+    }
+    if(t.getAttribute('data-maplegendsize')!==null){
+      var lv = +t.value; state.mapLegendFont = lv;
+      var sec = document.getElementById('map-export');
+      if(sec) sec.style.setProperty('--map-legend-font', lv+'px');
+      var mll = t.parentElement && t.parentElement.querySelector('span:last-child');
+      if(mll) mll.textContent = lv+'px';
       return;
     }
     // font-size sliders: update the CSS var live on the board container (no
