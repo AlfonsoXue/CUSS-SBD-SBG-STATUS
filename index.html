@@ -158,10 +158,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all' } };
+                filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
+                pickerOpen: false };
 
   function stationMatch(s){
     var f = state.filters;
+    if(f.excluded[s.id]) return false;
     if(f.region!=='all' && s.region!==f.region) return false;
     if(f.cuss!=='all' && s.cuss!==f.cuss) return false;
     if(f.sbd!=='all' && s.sbd!==f.sbd) return false;
@@ -171,7 +173,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return true;
   }
   function filteredStations(){ return state.stations.filter(stationMatch); }
-  function filtersActive(){ var f=state.filters; return f.region!=='all'||f.cuss!=='all'||f.sbd!=='all'||f.sbg!=='all'||f.kpi!=='all'; }
+  function excludedCount(){ var n=0, e=state.filters.excluded; for(var k in e){ if(e[k]) n++; } return n; }
+  function filtersActive(){ var f=state.filters; return f.region!=='all'||f.cuss!=='all'||f.sbd!=='all'||f.sbg!=='all'||f.kpi!=='all'||excludedCount()>0; }
 
   // ---- mutations ----
   function update(stations){ save(stations); state.stations = stations; render(); }
@@ -196,7 +199,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setMapPalette(p){ state.mapPalette = p; render(); }
   function setDotColor(d){ state.dotColor = d; render(); }
   function setFilter(k, v){ state.filters[k] = v; render(); }
-  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all' }; render(); }
+  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
+  function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
+  function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; render(); }
+  function setAllExcluded(on){
+    var e = {};
+    if(on){ state.stations.forEach(function(s){ e[s.id]=true; }); }
+    state.filters.excluded = e; render();
+  }
 
   function addStation(){
     var sel = find(state.selectedId);
@@ -293,13 +303,20 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // ---- scoring for map & matrix ----
   var STATUS_WEIGHT = { online:1, paused:0.55, building:0.45, evaluating:0.2, none:0 };
   function automationScore(s){ return (STATUS_WEIGHT[s.cuss] + STATUS_WEIGHT[s.sbd] + STATUS_WEIGHT[s.sbg]) / 3; }
-  function volumeScore(s){
-    var p = Math.max(1, +s.pax || 0);
-    // log scale normalized to a fixed pax window (500 .. 250000) so the axis is stable while editing
-    var lo = Math.log(500), hi = Math.log(250000);
-    var v = (Math.log(p) - lo) / (hi - lo);
-    return Math.max(0, Math.min(1, v));
+  // log-scale volume normalized to the pax range of a given station set (so the
+  // matrix axis rescales to whatever is currently visible/filtered).
+  function paxRange(list){
+    var lo = Infinity, hi = -Infinity;
+    (list||[]).forEach(function(s){ var v = Math.log(Math.max(1, +s.pax||0)); if(v<lo) lo=v; if(v>hi) hi=v; });
+    if(!isFinite(lo)){ lo = Math.log(500); hi = Math.log(250000); }
+    return { lo:lo, hi:hi };
   }
+  function volumeScoreIn(s, range){
+    var v = Math.log(Math.max(1, +s.pax||0));
+    if(range.hi - range.lo < 1e-9) return 0.5;
+    return Math.max(0, Math.min(1, (v - range.lo) / (range.hi - range.lo)));
+  }
+  function volumeScore(s){ return volumeScoreIn(s, paxRange(state.stations)); }
   var AUTO_THRESHOLD = 0.5, VOL_THRESHOLD = 0.5;
   // quadrants keyed by (hiVol, hiAuto)
   var QUAD = {
@@ -616,9 +633,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function matrixHTML(){
     var visible = filteredStations();
+    var range = paxRange(visible);   // rescale X axis to the currently-visible stations
     var dots = visible.map(function(s){
-      var x = volumeScore(s), y = automationScore(s);
-      var q = quadrantOf(s);
+      var x = volumeScoreIn(s, range), y = automationScore(s);
       var jx = (((s.id*37)%100)/100 - 0.5) * 7;
       var jy = (((s.id*61)%100)/100 - 0.5) * 7;
       var left = Math.max(4, Math.min(96, 6 + x*88 + jx)).toFixed(2);
@@ -675,6 +692,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var clearBtn = filtersActive()
       ? '<button data-action="clearFilters" style="border:1px solid #DFE3E4;background:#fff;color:#C24626;border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">清除篩選</button>'
       : '';
+    var exN = excludedCount();
+    var pickerBtn = '<button data-action="togglePicker" style="border:1px solid '+(state.pickerOpen||exN>0?'#00853C':'#DFE3E4')+';background:'+(state.pickerOpen?'#00853C':'#fff')+';color:'+(state.pickerOpen?'#fff':(exN>0?'#00853C':'#515A5D'))+';border-radius:14px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">個別場站'+(exN>0?'（已排除 '+exN+'）':'')+' '+(state.pickerOpen?'▲':'▾')+'</button>';
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:12px 16px;margin-bottom:14px">'
       + '<span style="font-size:12px;font-weight:800;color:#00853C">篩選</span>'
       + filterSelect('region','場站區域',regionOpts)
@@ -682,12 +701,43 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       + filterSelect('sbd','SBD',statusOpts)
       + filterSelect('sbg','SBG',statusOpts)
       + filterSelect('kpi','經理人 KPI',kpiOpts)
+      + pickerBtn
       + clearBtn
+      + '</div>';
+  }
+  function pickerHTML(){
+    if(!state.pickerOpen) return '';
+    var e = state.filters.excluded;
+    var regions = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
+    state.stations.forEach(function(s){ if(s.region && regions.indexOf(s.region)<0) regions.push(s.region); });
+    if(state.stations.some(function(s){ return !s.region; })) regions.push('');
+    var groups = regions.map(function(r){
+      var items = state.stations.filter(function(s){ return (s.region||'')===r; });
+      if(!items.length) return '';
+      var chips = items.map(function(s){
+        var off = !!e[s.id];
+        return '<button data-action="toggleExclude" data-id="'+s.id+'" title="'+esc(s.code)+(off?'（已排除）':'')+'" style="border:1.5px solid '+(off?'#E0E4E5':STATUS[s.cuss].color)+';background:'+(off?'#F2F4F4':'#fff')+';color:'+(off?'#AEB6B8':'#141819')+';border-radius:7px;padding:4px 9px;font-size:11.5px;font-weight:700;letter-spacing:.5px;cursor:pointer;'+(off?'text-decoration:line-through':'')+'"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:'+(off?'#CDD3D4':STATUS[s.cuss].color)+';margin-right:5px;vertical-align:middle"></span>'+esc(s.code)+'</button>';
+      }).join('');
+      return '<div style="display:flex;flex-direction:column;gap:6px;min-width:0">'
+        + '<div style="font-size:11px;font-weight:700;color:#6E787B">'+esc(r||'未分區')+'</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px">'+chips+'</div>'
+        + '</div>';
+    }).join('');
+    return '<div style="background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:14px 16px;margin-bottom:14px">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">'
+      +   '<div style="font-size:12px;font-weight:800;color:#00853C">個別場站選取<span style="font-weight:400;color:#8A938F">　點場站代碼可加入／移除；灰色刪除線＝已排除，不納入地圖與矩陣</span></div>'
+      +   '<div style="display:flex;gap:6px">'
+      +     '<button data-action="pickAll" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:12px;padding:4px 11px;font-size:11.5px;font-weight:600;cursor:pointer">全選</button>'
+      +     '<button data-action="pickNone" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:12px;padding:4px 11px;font-size:11.5px;font-weight:600;cursor:pointer">全不選</button>'
+      +   '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:16px 22px">'+groups+'</div>'
       + '</div>';
   }
   function mapBodyHTML(){
     return '<div>'
       + filterBarHTML()
+      + pickerHTML()
       + '<div id="cuss-board" style="display:flex;gap:18px;align-items:stretch">'
       +   mapPanelHTML() + matrixHTML()
       + '</div>'
@@ -818,6 +868,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'toggleQuick': toggleQuick(); break;
       case 'exportPNG': exportPNG(t.getAttribute('data-target'), t.getAttribute('data-file')); break;
       case 'clearFilters': clearFilters(); break;
+      case 'togglePicker': togglePicker(); break;
+      case 'toggleExclude': toggleExclude(id); break;
+      case 'pickAll': setAllExcluded(false); break;
+      case 'pickNone': setAllExcluded(true); break;
       case 'exportJSON': exportJSON(); break;
       case 'exportCSV': exportCSV(); break;
       case 'resetData': resetData(); break;
