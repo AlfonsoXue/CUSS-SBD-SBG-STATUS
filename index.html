@@ -313,14 +313,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
 
   // ---- derive coverage ----
-  function countBy(f){
+  function countBy(list, f){
     var c = {online:0,paused:0,building:0,evaluating:0,none:0};
-    state.stations.forEach(function(s){ if(c[s[f]]!=null) c[s[f]]++; });
+    list.forEach(function(s){ if(c[s[f]]!=null) c[s[f]]++; });
     return c;
   }
-  function stage(n, code, desc, f){
-    var total = state.stations.length || 1;
-    var c = countBy(f);
+  function stage(list, n, code, desc, f){
+    var total = list.length || 1;
+    var c = countBy(list, f);
     var pct = Math.round((c.online/total)*100);
     var segs = ORDER.filter(function(k){ return c[k]>0; }).map(function(k){
       var w = (c[k]/total)*100;
@@ -356,7 +356,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function comboCounts(){
     var c = {}; COMBOS.forEach(function(o){ c[o.key]=0; });
-    state.stations.forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
+    filteredStations().forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
     return c;
   }
 
@@ -440,7 +440,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
 
   function comboSectionHTML(){
-    var total = state.stations.length || 1;
+    var total = filteredStations().length || 1;
     var counts = comboCounts();
     var sel = state.comboSel.filter(function(k){ return COMBOS.some(function(c){ return c.key===k; }); });
 
@@ -548,17 +548,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return byAutomation(a, b);
   }
   function groupList(){
+    var pool = filteredStations();
     if(state.groupMode==='region'){
-      var regs = REGION_ORDER.filter(function(r){ return state.stations.some(function(s){ return s.region===r; }); });
-      state.stations.forEach(function(s){ if(s.region && regs.indexOf(s.region)<0) regs.push(s.region); });
+      var regs = REGION_ORDER.filter(function(r){ return pool.some(function(s){ return s.region===r; }); });
+      pool.forEach(function(s){ if(s.region && regs.indexOf(s.region)<0) regs.push(s.region); });
       // stations with empty region
-      if(state.stations.some(function(s){ return !s.region; })) regs.push('');
+      if(pool.some(function(s){ return !s.region; })) regs.push('');
       return regs.map(function(r){
-        return { name: r || '未分區', dot:'#00853C', items: state.stations.filter(function(s){ return (s.region||'')===r; }).sort(byPhaseThenAuto) };
+        return { name: r || '未分區', dot:'#00853C', items: pool.filter(function(s){ return (s.region||'')===r; }).sort(byPhaseThenAuto) };
       });
     }
     return PHASES.map(function(p){
-      return { name:p, dot:phaseDot[p]||STATUS.evaluating.color, items: state.stations.filter(function(s){ return s.phase===p; }).sort(byAutomation) };
+      return { name:p, dot:phaseDot[p]||STATUS.evaluating.color, items: pool.filter(function(s){ return s.phase===p; }).sort(byAutomation) };
     });
   }
   function groupHTML(g){
@@ -1090,11 +1091,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function render(){
     hideTip();
     var stationCount = state.stations.length;
+    var vis = filteredStations();          // coverage / combo / chips all respect the active filter
+    var visCount = vis.length;
     var dataDate = '2026·05';
     var stages = [
-      stage(1,'CUSS','列印行李條 (CUSS Lite) / 列印登機證 & 自助報到 (預設關閉，依需求開啟)','cuss'),
-      stage(2,'SBD','自助行李託運','sbd'),
-      stage(3,'SBG','自助登機門 / 生物辨識','sbg')
+      stage(vis,1,'CUSS','列印行李條 (CUSS Lite) / 列印登機證 & 自助報到 (預設關閉，依需求開啟)','cuss'),
+      stage(vis,2,'SBD','自助行李託運','sbd'),
+      stage(vis,3,'SBG','自助登機門 / 生物辨識','sbg')
     ];
     var quickBg = state.quickMode ? '#00853C' : '#fff';
     var quickFg = state.quickMode ? '#fff' : '#00853C';
@@ -1115,11 +1118,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       ? '<button data-action="toggleQuick" style="border:1.5px solid #00853C;background:'+quickBg+';color:'+quickFg+';border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">快速切換模式'+quickState+'</button>'
       : '';
 
+    var covSub = filtersActive()
+      ? '依<b style="color:#00853C">篩選後 '+visCount+' / '+stationCount+'</b> 個場站即時統計'
+      : '依目前 '+stationCount+' 個納管場站即時統計';
     var boardBody =
-      '<div id="cuss-board" style="background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
+      '<div>'
+      + filterBarHTML()
+      + pickerHTML()
+      + '<div id="cuss-board" style="background:#fff;border:1px solid #DFE3E4;border-radius:14px;padding:22px;display:flex;gap:22px;align-items:flex-start;box-shadow:0 1px 3px rgba(20,40,30,.06)">'
       +   '<section style="flex:none;width:486px;background:#F3F7F4;border-radius:12px;padding:20px 20px 22px">'
       +     '<div style="font-size:16px;font-weight:900;color:#00853C">CUSS｜SBD｜SBG設備覆蓋率</div>'
-      +     '<div style="font-size:11px;color:#6E787B;margin-top:3px">依目前 '+stationCount+' 個納管場站即時統計</div>'
+      +     '<div style="font-size:11px;color:#6E787B;margin-top:3px">'+covSub+'</div>'
       +     '<div style="display:flex;flex-direction:column;gap:14px;margin-top:16px">'+stages.map(stageHTML).join('')+'</div>'
       +     comboSectionHTML()
       +   '</section>'
@@ -1135,6 +1144,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +       legendMaster
       +     '</div>'
       +   '</section>'
+      + '</div>'
       + '</div>';
 
     var body = state.view==='board' ? boardBody : mapBodyHTML();
