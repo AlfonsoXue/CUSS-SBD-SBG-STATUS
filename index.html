@@ -236,6 +236,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     render();
   }
   function resetMapView(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; render(); }
+  // restore map zoom/pan, circle size and station-name font size to defaults
+  function resetMapDefaults(){ state.mapVB = { x:BASE_VB.x, y:BASE_VB.y, w:BASE_VB.w, h:BASE_VB.h }; state.dotScale = 1; state.mapNameScale = 1; render(); }
   function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
   function setFilter(k, v){ state.filters[k] = v; render(); }
   function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
@@ -1078,6 +1080,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<input type="range" min="0.6" max="2.4" step="0.1" value="'+state.mapNameScale+'" data-mapnamesize style="width:110px;accent-color:#00853C;cursor:pointer" />'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">'+Math.round(state.mapNameScale*100)+'%</span>'
       +   '</div>'
+      +   '<button data-action="resetMapDefaults" title="將地圖縮放、圓圈大小與場站名稱字級恢復為預設" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">恢復預設</button>'
       + '</div>';
   }
   function filterBarHTML(){
@@ -1086,9 +1089,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     state.stations.forEach(function(s){ if(s.region && regions.indexOf(s.region)<0) regions.push(s.region); });
     var regionOpts = [{v:'all',label:'全部區域'}].concat(regions.map(function(r){ return {v:r, label:r}; }));
     var kpiOpts = [{v:'all',label:'全部'},{v:'yes',label:'僅 KPI 場站'},{v:'no',label:'非 KPI'}];
-    var clearBtn = filtersActive()
-      ? '<button data-action="clearFilters" style="border:1px solid #DFE3E4;background:#fff;color:#C24626;border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">清除篩選</button>'
-      : '';
+    var clrOn = filtersActive();
+    var clearBtn = '<button data-action="clearFilters"'+(clrOn?'':' disabled')+' style="border:1px solid '+(clrOn?'#DFE3E4':'#ECEFEF')+';background:#fff;color:'+(clrOn?'#C24626':'#C7CDCF')+';border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:'+(clrOn?'pointer':'default')+'">清除篩選</button>';
     var exN = excludedCount();
     var pickerBtn = '<button data-action="togglePicker" style="border:1px solid '+(state.pickerOpen||exN>0?'#00853C':'#DFE3E4')+';background:'+(state.pickerOpen?'#00853C':'#fff')+';color:'+(state.pickerOpen?'#fff':(exN>0?'#00853C':'#515A5D'))+';border-radius:14px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">個別場站'+(exN>0?'（已排除 '+exN+'）':'')+' '+(state.pickerOpen?'▲':'▾')+'</button>';
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:12px 16px;margin-bottom:14px">'
@@ -1337,6 +1339,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'showNames': setShowNames(t.getAttribute('data-sn')==='on'); break;
       case 'zoomMap': zoomMap(+t.getAttribute('data-k')); break;
       case 'resetMapView': resetMapView(); break;
+      case 'resetMapDefaults': resetMapDefaults(); break;
       case 'select': if(mapPanned){ mapPanned=false; break; } select(id); break;
       case 'toggleKpi': var s=find(id); if(s) setField(id,'kpi',!s.kpi); break;
       case 'toggleBagTag': var sb=find(id); if(sb) setField(id,'bagTag',!sb.bagTag); break;
