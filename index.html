@@ -1348,7 +1348,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       // Enlarge every active plate around its own geographic anchor while the
       // regional gaps compact. The stronger horizontal compaction matches the
       // wide map aspect and lets the enlarged plates fill the viewBox.
-      n.scale=1+.32*t;
+      // Match the ×1–×4 map control: active plates now enlarge uniformly from
+      // 100% to a true 400% maximum without deforming their original paths.
+      n.scale=1+3*t;
       n.tx=gx+(n.cx-gx)*(1-.36*t); n.ty=gy+(n.cy-gy)*(1-.28*t);
       if(n.targetZone==='upper_middle'){
         var ex=mapCx,ey=BASE_VB.y+BASE_VB.h*.24;
@@ -1480,33 +1482,82 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return pts[pts.length-1];
   }
   function buildSafePlateTransitions(nodes,offsets,previous,animate){
-    var steps=animate?24:1,keyTimes=[],result={},start={},finish={};
+    var result={},start={},finish={};
     nodes.forEach(function(n){
       var p=(previous&&previous[n.id])||{dx:0,dy:0,scale:1},o=offsets[n.id]||{dx:0,dy:0,scale:1};
-      start[n.id]={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:n.cx,cy:n.cy};finish[n.id]={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:n.cx,cy:n.cy};result[n.id]={routed:animate,staged:animate,keyTimes:keyTimes,points:[]};
+      start[n.id]={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:n.cx,cy:n.cy};finish[n.id]={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:n.cx,cy:n.cy};
     });
-    for(var step=0;step<=steps;step++){
-      var t=step/steps;keyTimes.push(+t.toFixed(4));
-      var work=nodes.map(function(n){var a=start[n.id],b=finish[n.id],s=a.scale+(b.scale-a.scale)*t;return{id:n.id,cx:n.cx,cy:n.cy,items:n.items,pieces:n.pieces,scale:s,fx:n.cx+a.dx+(b.dx-a.dx)*t,fy:n.cy+a.dy+(b.dy-a.dy)*t};});
-      if(step>0&&step<steps){
-        var by={};work.forEach(function(n){by[n.id]=n;});
-        var avg=work.reduce(function(sum,n){return sum+n.scale;},0)/(work.length||1),z=Math.max(0,Math.min(1,(avg-1)/.32)),gap=2+6*z;
-        function rightOf(left,right){if(!left||!right)return false;var lb=transformedPlateBox(left,left.fx,left.fy,left.scale),rb=transformedPlateBox(right,right.fx,right.fy,right.scale),need=lb.x1+gap-rb.x0;if(need<=.01)return false;left.fx-=need*.5;right.fx+=need*.5;return true;}
-        function below(upper,lower){if(!upper||!lower)return false;var ub=transformedPlateBox(upper,upper.fx,upper.fy,upper.scale),lb=transformedPlateBox(lower,lower.fx,lower.fy,lower.scale),need=ub.y1+gap-lb.y0;if(need<=.01)return false;upper.fy-=need*.25;lower.fy+=need*.75;return true;}
-        for(var it=0;it<260;it++){
-          var moved=false;if(rightOf(by.north_america,by.europe))moved=true;if(rightOf(by.europe,by.china))moved=true;if(below(by.southeast_asia,by.oceania))moved=true;
-          for(var i=0;i<work.length;i++)for(var j=i+1;j<work.length;j++){
-            var A=work[i],B=work[j];
-            for(var ai=0;ai<A.items.length;ai++)for(var bi=0;bi<B.items.length;bi++){
-              var ma=A.items[ai],mb=B.items[bi],ax=A.fx+(ma.x-A.cx)*A.scale,ay=A.fy+(ma.y-A.cy)*A.scale,bx=B.fx+(mb.x-B.cx)*B.scale,byy=B.fy+(mb.y-B.cy)*B.scale,dx=ax-bx,dy=ay-byy,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*A.scale+mb.R*B.scale+4;
-              if(d<min-.01){var hx=ma.x-mb.x,hy=ma.y-mb.y,hd=Math.sqrt(hx*hx+hy*hy),push=(min-d)*.5+.01,ux=hd>.01?hx/hd:dx/d,uy=hd>.01?hy/hd:dy/d;A.fx+=ux*push;A.fy+=uy*push;B.fx-=ux*push;B.fy-=uy*push;moved=true;}
-            }
-          }
-          if(!moved)break;
+    var gx=0,gy=0;nodes.forEach(function(n){gx+=n.cx;gy+=n.cy;});gx/=nodes.length||1;gy/=nodes.length||1;
+    function radialParking(source,k){
+      var parked={};nodes.forEach(function(n){var q=source[n.id],fx=n.cx+q.dx,fy=n.cy+q.dy;parked[n.id]={dx:gx+(fx-gx)*k-n.cx,dy:gy+(fy-gy)*k-n.cy,scale:q.scale,cx:n.cx,cy:n.cy};});return parked;
+    }
+    // Open all group centers radially before changing between the two layouts,
+    // then close them into the requested final packing. Plate scale remains
+    // monotonic and never exceeds either endpoint (400% at maximum zoom).
+    var waypoints=animate?[{time:0,points:start},{time:.22,points:radialParking(start,3.6)},{time:.78,points:radialParking(finish,3.6)},{time:1,points:finish}]:[{time:0,points:start},{time:1,points:finish}];
+    function stationAt(n,m,q){return{x:n.cx+q.dx+(m.x-n.cx)*q.scale,y:n.cy+q.dy+(m.y-n.cy)*q.scale,r:m.R*q.scale};}
+    // Exact continuous test for two linearly moving, linearly scaling circles.
+    function unsafeSegment(left,right){
+      var worst=null;
+      for(var i=0;i<nodes.length;i++)for(var j=i+1;j<nodes.length;j++){
+        var a=nodes[i],b=nodes[j],a0=left.points[a.id],a1=right.points[a.id],b0=left.points[b.id],b1=right.points[b.id];
+        for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
+          var ma=a.items[ai],mb=b.items[bi],pa0=stationAt(a,ma,a0),pa1=stationAt(a,ma,a1),pb0=stationAt(b,mb,b0),pb1=stationAt(b,mb,b1);
+          var px=pa0.x-pb0.x,py=pa0.y-pb0.y,vx=(pa1.x-pb1.x)-px,vy=(pa1.y-pb1.y)-py,r0=pa0.r+pb0.r+.2,dr=(pa1.r+pb1.r+.2)-r0;
+          var qa=vx*vx+vy*vy-dr*dr,qb=2*(px*vx+py*vy-r0*dr),u=qa>1e-9?Math.max(0,Math.min(1,-qb/(2*qa))):0;
+          var rx=px+vx*u,ry=py+vy*u,rr=r0+dr*u,clear=rx*rx+ry*ry-rr*rr;
+          if(clear<-.01&&(!worst||clear<worst.clear)) worst={clear:clear,u:u};
         }
       }
-      work.forEach(function(n){result[n.id].points.push({dx:n.fx-n.cx,dy:n.fy-n.cy,scale:n.scale,cx:n.cx,cy:n.cy});});
+      return worst;
     }
+    function solveWaypoint(guess){
+      var work={},list=[];
+      nodes.forEach(function(n){var q=guess[n.id];var w={id:n.id,cx:n.cx,cy:n.cy,items:n.items,pieces:n.pieces,scale:q.scale,fx:n.cx+q.dx,fy:n.cy+q.dy};work[n.id]=w;list.push(w);});
+      for(var it=0;it<520;it++){
+        var moved=false;
+        for(var i=0;i<list.length;i++)for(var j=i+1;j<list.length;j++){
+          var a=list[i],b=list[j];
+          for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
+            var ma=a.items[ai],mb=b.items[bi],ax=a.fx+(ma.x-a.cx)*a.scale,ay=a.fy+(ma.y-a.cy)*a.scale,bx=b.fx+(mb.x-b.cx)*b.scale,by=b.fy+(mb.y-b.cy)*b.scale;
+            var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*a.scale+mb.R*b.scale+3;
+            if(d<min){var gx=a.cx-b.cx,gy=a.cy-b.cy,gd=Math.sqrt(gx*gx+gy*gy)||1,push=(min-d)*.5+.02,ux=gx/gd,uy=gy/gd;a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;moved=true;}
+          }
+        }
+        if(!moved) break;
+      }
+      function stationBox(n){
+        var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+        n.items.forEach(function(m){var r=m.R*n.scale+3,x=n.fx+(m.x-n.cx)*n.scale,y=n.fy+(m.y-n.cy)*n.scale;x0=Math.min(x0,x-r);x1=Math.max(x1,x+r);y0=Math.min(y0,y-r);y1=Math.max(y1,y+r);});
+        return{x0:x0,y0:y0,x1:x1,y1:y1};
+      }
+      // Resolve rigid multi-circle interlocks as whole cluster boxes. This
+      // guarantees a clear corridor even when pair forces cancel each other.
+      for(it=0;it<320;it++){
+        moved=false;
+        for(i=0;i<list.length;i++)for(j=i+1;j<list.length;j++){
+          a=list[i];b=list[j];var ba=stationBox(a),bb=stationBox(b),ox=Math.min(ba.x1,bb.x1)-Math.max(ba.x0,bb.x0),oy=Math.min(ba.y1,bb.y1)-Math.max(ba.y0,bb.y0);
+          if(ox<=0||oy<=0) continue;
+          var aLeft=a.cx<=b.cx,aAbove=a.cy<=b.cy,push;
+          if(ox<=oy){push=ox*.5+.02;a.fx+=aLeft?-push:push;b.fx+=aLeft?push:-push;}
+          else {push=oy*.5+.02;a.fy+=aAbove?-push:push;b.fy+=aAbove?push:-push;}
+          moved=true;
+        }
+        if(!moved) break;
+      }
+      var solved={};nodes.forEach(function(n){var w=work[n.id];solved[n.id]={dx:w.fx-n.cx,dy:w.fy-n.cy,scale:w.scale,cx:n.cx,cy:n.cy};});return solved;
+    }
+    // Insert only the waypoints required to make every linear segment safe.
+    if(animate) for(var guard=0;guard<120;guard++){
+      var hit=null,index=-1;
+      for(var si=0;si<waypoints.length-1;si++){var bad=unsafeSegment(waypoints[si],waypoints[si+1]);if(bad){hit=bad;index=si;break;}}
+      if(!hit||waypoints.length>=96) break;
+      var left=waypoints[index],right=waypoints[index+1],u=Math.max(.18,Math.min(.82,hit.u)),guess={};
+      nodes.forEach(function(n){var a=left.points[n.id],b=right.points[n.id];guess[n.id]={dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:n.cx,cy:n.cy};});
+      waypoints.splice(index+1,0,{time:left.time+(right.time-left.time)*u,points:solveWaypoint(guess)});
+    }
+    var keyTimes=waypoints.map(function(w){return +w.time.toFixed(6);});
+    nodes.forEach(function(n){result[n.id]={routed:animate&&waypoints.length>2,staged:animate,keyTimes:keyTimes,points:waypoints.map(function(w){return w.points[n.id];})};});
     return result;
   }
   function plateMotion(id,offset,previous,animate,transition){
