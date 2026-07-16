@@ -24,10 +24,10 @@
        pointer-events:none;opacity:0;transition:opacity .12s ease;display:none}
   .fld{border:1px solid #DFE3E4;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;width:100%}
   .hovmenu-wrap{position:relative;display:inline-flex}
-  .hovmenu{display:none;position:absolute;top:100%;right:0;padding-top:6px;z-index:40}
+  .hovmenu{display:none;position:absolute;top:100%;right:0;padding-top:6px;z-index:58}
   .hovmenu-wrap:hover .hovmenu,.hovmenu-wrap:focus-within .hovmenu{display:block}
-  .hovmenu-inner{background:#fff;border:1px solid #DFE3E4;border-radius:12px;box-shadow:0 12px 30px rgba(20,40,30,.18);padding:5px;min-width:150px}
-  .hovmenu-item{display:block;width:100%;text-align:left;border:none;background:transparent;color:#22312B;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .hovmenu-inner{background:#fff;border:1px solid #DFE3E4;border-radius:12px;box-shadow:0 12px 30px rgba(20,40,30,.22);padding:5px;min-width:180px;display:flex;flex-direction:column;gap:2px}
+  .hovmenu-item{display:block;width:100%;text-align:left;border:none;background:#fff;color:#22312B;border-radius:8px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;line-height:1.2}
   .hovmenu-item:hover{background:#EEF4F0;color:#00853C}
 </style>
 </head>
@@ -1722,9 +1722,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<button data-action="exportPNG" style="border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">匯出圖片</button>'
       +     '<button data-action="importData" title="匯入 JSON／CSV（覆蓋）或原始 Excel 檔（可一次複選 OEM 提供的兩個檔案，合併更新）" style="border:1.5px solid #00853C;background:#fff;color:#00853C;border-radius:16px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer">匯入資料</button>'
       +     '<span class="hovmenu-wrap">'
-      +       '<button data-action="noop" title="下載目前資料（滑鼠移過選擇 JSON 或 CSV）" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:16px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">匯出資料 ▾</button>'
+      +       '<button data-action="noop" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:16px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">匯出資料 ▾</button>'
       +       '<span class="hovmenu"><span class="hovmenu-inner">'
-      +         '<button data-action="exportJSON" class="hovmenu-item" title="下載目前資料為 JSON（可作為存檔，日後由「匯入資料」還原）">匯出 JSON</button>'
+      +         '<button data-action="exportJSON" class="hovmenu-item">匯出 JSON</button>'
       +         '<button data-action="exportCSV" class="hovmenu-item">匯出 CSV（Excel 相容）</button>'
       +       '</span></span>'
       +     '</span>'
