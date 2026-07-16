@@ -15,8 +15,8 @@
   ::-webkit-scrollbar-track{background:transparent}
   @keyframes sheetIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes scrimIn{from{opacity:0}to{opacity:1}}
-  /* fold/expand flourish when the map re-fits — a transient horizontal unfold; ends undistorted */
-  @keyframes mapUnfold{from{transform:scaleX(.86);opacity:.32}to{transform:scaleX(1);opacity:1}}
+  /* whole-map fade complements the per-white-line plate move/scale animation */
+  @keyframes mapUnfold{from{opacity:.62}to{opacity:1}}
   .map-unfold{animation:mapUnfold .45s cubic-bezier(.22,.61,.36,1);transform-origin:50% 50%}
   input:focus,select:focus,textarea:focus{outline:2px solid #00853C;outline-offset:1px}
   button{font-family:inherit}
@@ -194,7 +194,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapZoom: 1, mapPlateOffsets: {}, mapPlateLayout: null, mapAnimationFrame: null, mapBaseOpacity: 1, mapAnimToken: 0, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -250,7 +250,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setDotColor(d){ state.dotColor = d; render(); }
   function setKpiRing(on){ state.showKpiRing = on; render(); }
   function setShowNames(on){ state.showNames = on; render(); }
-  function setMapNameScale(v){ state.mapNameScale = Math.max(0.6, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
+  function setMapNameScale(v){ state.mapNameScale = Math.max(0.05, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
   function setMapLegendFont(v){ state.mapLegendFont = Math.max(8, Math.min(20, Math.round(v||11))); render(); }
   function setDotScale(v){ state.dotScale = v; render(); }
   function toggleComboMenu(){ state.comboOpen = !state.comboOpen; render(); }
@@ -262,51 +262,49 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     render();
   }
   function clearCombo(){ state.comboSel = []; state.comboOpen = false; render(); }
-  // keep the viewBox within the current content bounds: never zoom out past the
-  // full fit, never pan into empty ocean — so circles at the content edge stay whole
-  // and never appear to float outside the pane.
+  // Always frame the complete moved plates and station geography. Cropping cannot
+  // discard a station; zoom is expressed by intact white-line plates translating.
   function clampVB(vb){
     var b = state.mapBounds; if(!b) return vb;
-    var w = Math.min(vb.w, b.w), h = Math.min(vb.h, b.h);
-    var x = Math.max(b.x, Math.min(vb.x, b.x + b.w - w));
-    var y = Math.max(b.y, Math.min(vb.y, b.y + b.h - h));
-    return { x:x, y:y, w:w, h:h };
+    return { x:b.x, y:b.y, w:b.w, h:b.h };
   }
-  // grow a candidate viewBox (keeping its aspect) so any circle whose centre falls
-  // inside it is shown WHOLE — a zoom never slices a circle at the pane edge.
+  // Compatibility wrapper retained for callers/tests: strict mode always returns
+  // the complete frame, not merely the circles whose centres happen to be visible.
   function snapWholeCircles(vb){
-    var pool = state.mapPool; if(!pool || !pool.length) return vb;
-    var x0=vb.x, y0=vb.y, x1=vb.x+vb.w, y1=vb.y+vb.h;
-    var nx0=x0, ny0=y0, nx1=x1, ny1=y1, any=false;
-    pool.forEach(function(m){
-      if(m.x>=x0 && m.x<=x1 && m.y>=y0 && m.y<=y1){
-        any=true;
-        var pad = m.R + 2;
-        if(m.x-pad<nx0) nx0=m.x-pad; if(m.x+pad>nx1) nx1=m.x+pad;
-        if(m.y-pad<ny0) ny0=m.y-pad; if(m.y+pad>ny1) ny1=m.y+pad;
-      }
-    });
-    if(!any) return vb;
-    var asp = vb.w/vb.h, w=nx1-nx0, h=ny1-ny0;
-    if(w/h > asp){ var nh=w/asp, cy=(ny0+ny1)/2; ny0=cy-nh/2; ny1=cy+nh/2; }
-    else { var nw=h*asp, cx=(nx0+nx1)/2; nx0=cx-nw/2; nx1=cx+nw/2; }
-    return { x:nx0, y:ny0, w:nx1-nx0, h:ny1-ny0 };
+    return clampVB(vb);
   }
-  function zoomMap(k){
-    var vb = state.mapVB;
-    state.mapFit = false;                    // manual zoom takes over from auto-fit
-    var cx = vb.x + vb.w/2, cy = vb.y + vb.h/2;
-    var nw = Math.max(120, Math.min(2200, vb.w*k));
-    var nh = nw*(vb.h/vb.w);
-    state.mapVB = clampVB(snapWholeCircles({ x:cx - nw/2, y:cy - nh/2, w:nw, h:nh }));
+  function wholeCirclesFit(vb){
+    var pool = state.mapPool; if(!pool || !pool.length) return true;
+    var x0=vb.x, y0=vb.y, x1=vb.x+vb.w, y1=vb.y+vb.h;
+    for(var i=0;i<pool.length;i++){
+      var m=pool[i];
+      var pad=m.R+4; // includes KPI/selection rings and antialiasing clearance
+      if(m.x-pad<x0 || m.x+pad>x1 || m.y-pad<y0 || m.y+pad>y1) return false;
+    }
+    return true;
+  }
+  // One authoritative constraint: the legal view is the complete plate frame.
+  function constrainMapVB(vb){
+    return clampVB(vb);
+  }
+  // Zoom runs ×1.0–×MAP_MAX_ZOOM in exact 0.1 increments: every zoom value is
+  // quantized to one decimal, so the displayed ×N.N is always the true factor.
+  var MAP_MAX_ZOOM = 10;
+  function quantZoom(z){ return Math.max(1, Math.min(MAP_MAX_ZOOM, Math.round(z*10)/10)); }
+  function zoomMap(dz){
+    var old = state.mapZoom||1;
+    state.mapZoom = quantZoom(old + (dz||0));
+    state.mapFit = true;
+    if(Math.abs(state.mapZoom-old)>0.0001) state.mapAnim = true;
     render();
   }
-  function resetMapView(){ state.mapFit = true; state.dotScale = 1; state.mapAnim = true; render(); }
+  function resetMapView(){ state.mapFit = true; state.mapZoom = 1; state.dotScale = 1; state.mapAnim = true; render(); }
   // restore map auto-fit, circle size and station-name font size to defaults
-  function resetMapDefaults(){ state.mapFit = true; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; state.mapAnim = true; render(); }
+  function resetMapDefaults(){ state.mapFit = true; state.mapZoom = 1; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; state.mapAnim = true; render(); }
   function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
-  function setFilter(k, v){ state.filters[k] = v; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
-  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
+  function refitMapAfterFilter(){ if(state.view==='map'){ state.mapFit=true; state.mapAnim=true; } }
+  function setFilter(k, v){ state.filters[k] = v; refitMapAfterFilter(); render(); }
+  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; refitMapAfterFilter(); render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
   function toggleLog(){ state.logOpen = !state.logOpen; render(); }
   function toggleHidden(){ state.hiddenOpen = !state.hiddenOpen; render(); }
@@ -351,11 +349,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     logEvent('更新紀錄由人事代號 '+id+' 清除（清除 '+n+' 筆）');
     render();
   }
-  function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; render(); }
+  function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; refitMapAfterFilter(); render(); }
   function setAllExcluded(on){
     var e = {};
     if(on){ state.stations.forEach(function(s){ e[s.id]=true; }); }
-    state.filters.excluded = e; render();
+    state.filters.excluded = e; refitMapAfterFilter(); render();
   }
 
   function addStation(){
@@ -524,7 +522,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return String(v==null?'':v).replace(/^[\s\r\n]*[●○▲△Xx✕╳]/,'').replace(/[\r\n]+/g,'').replace(/\s*\/\s*/g,'/').replace(/\*/g,'').trim();
   }
   function truthy(v){ return /^(是|有|y|yes|true|v|✓|1|●|kpi)$/i.test(String(v==null?'':v).trim()); }
-  function normRegion(v){ v=String(v).replace(/\s/g,''); return v==='台灣'?'台灣區':v; }
+  function normRegion(v){
+    v=String(v).replace(/\s/g,'');
+    if(/^(台灣|台湾|台湾区)$/.test(v)) return '台灣區';
+    if(/^(中國|中国|中國大陸|中国大陆|大陆)$/.test(v)) return '大陸';
+    return v;
+  }
+  function isRegionValue(v){
+    v=String(v==null?'':v).replace(/\s/g,'');
+    return REGION_ORDER.indexOf(normRegion(v))>=0 || /^(中國|中国|中國大陸|中国大陆|大陆|日本|韓國|韩国|南韓|南韩|南亞|南亚|美國|美国|加拿大|西歐|西欧|南歐|南欧|澳洲|大洋洲)$/.test(v);
+  }
 
   // minimal RFC-4180 CSV parser (handles quotes, commas, CRLF, BOM)
   function parseCSV(text){
@@ -610,7 +617,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function detectRegionCol(arr, from){
     var counts={};
-    for(var r=from;r<arr.length;r++){ var row=arr[r]||[]; for(var j=0;j<row.length;j++){ var v=String(row[j]==null?'':row[j]).replace(/\s/g,''); if(REGION_ORDER.indexOf(v)>=0 || v==='台灣') counts[j]=(counts[j]||0)+1; } }
+    for(var r=from;r<arr.length;r++){ var row=arr[r]||[]; for(var j=0;j<row.length;j++){ var v=String(row[j]==null?'':row[j]).replace(/\s/g,''); if(isRegionValue(v)) counts[j]=(counts[j]||0)+1; } }
     var best=-1,bn=0; for(var k in counts){ if(counts[k]>bn){ bn=counts[k]; best=+k; } } return best;
   }
   // parse the original EVA Excel workbooks (綜整 status sheet + CUSS 排程 sheet),
@@ -641,7 +648,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var carryRegion='', carryPhase='';
       for(var r=hRow+1;r<arr.length;r++){
         var row=arr[r]||[];
-        if(regionCol>=0){ var rv=String(row[regionCol]==null?'':row[regionCol]).replace(/\s/g,''); if(rv && (REGION_ORDER.indexOf(rv)>=0||rv==='台灣')) carryRegion=normRegion(rv); }
+        if(regionCol>=0){ var rv=String(row[regionCol]==null?'':row[regionCol]).replace(/\s/g,''); if(rv && isRegionValue(rv)) carryRegion=normRegion(rv); }
         if(cPhase>=0){ var pv=String(row[cPhase]==null?'':row[cPhase]).replace(/\s/g,''); if(pv) carryPhase=pv; }
         var rawc = codeCol>=0 ? String(row[codeCol]==null?'':row[codeCol]).trim() : '';
         if(!CODE_STAR_RE.test(rawc) || STOP_CODE[rawc.replace('*','').toUpperCase()]){
@@ -1219,6 +1226,475 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // ---- map ----
   var MW = 1000, MH = 500;
   function mproj(lat, lon){ return { x:(lon+180)/360*MW, y:(90-lat)/180*MH }; }
+  // Split the original basemap at its own closed white-line boundaries. Each
+  // subpath is moved intact: no longitude/latitude remap and no shape distortion.
+  var MAP_PIECES=null, STATION_PLATE_CACHE={};
+  function mapPathPoints(d){
+    var out=[], re=/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g,m;
+    while((m=re.exec(d))) out.push({x:+m[1],y:+m[2]});
+    return out;
+  }
+  function polygonArea(poly){
+    var a=0; for(var i=0,j=poly.length-1;i<poly.length;j=i++) a+=poly[j].x*poly[i].y-poly[i].x*poly[j].y;
+    return Math.abs(a/2);
+  }
+  function pointInPolygon(p,poly){
+    var yes=false;
+    for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+      var a=poly[i],b=poly[j];
+      if(((a.y>p.y)!==(b.y>p.y)) && p.x<(b.x-a.x)*(p.y-a.y)/((b.y-a.y)||1e-9)+a.x) yes=!yes;
+    }
+    return yes;
+  }
+  function distanceToPolygon(p,poly){
+    var best=Infinity;
+    for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+      var a=poly[j],b=poly[i],vx=b.x-a.x,vy=b.y-a.y;
+      var t=Math.max(0,Math.min(1,((p.x-a.x)*vx+(p.y-a.y)*vy)/(vx*vx+vy*vy||1)));
+      var dx=p.x-(a.x+t*vx),dy=p.y-(a.y+t*vy); best=Math.min(best,Math.sqrt(dx*dx+dy*dy));
+    }
+    return best;
+  }
+  function transformedPieceGeometry(piece,cx,cy,fx,fy,scale){
+    var s=scale||1,x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    var poly=piece.poly.map(function(p){
+      var q={x:fx+(p.x-cx)*s,y:fy+(p.y-cy)*s};
+      x0=Math.min(x0,q.x);x1=Math.max(x1,q.x);y0=Math.min(y0,q.y);y1=Math.max(y1,q.y);return q;
+    });
+    return{poly:poly,box:{x0:x0,y0:y0,x1:x1,y1:y1}};
+  }
+  function orient2d(a,b,c){return(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);}
+  function segmentsProperlyCross(a,b,c,d){
+    var e=1e-7,o1=orient2d(a,b,c),o2=orient2d(a,b,d),o3=orient2d(c,d,a),o4=orient2d(c,d,b);
+    return((o1>e&&o2<-e)||(o1<-e&&o2>e))&&((o3>e&&o4<-e)||(o3<-e&&o4>e));
+  }
+  // Boundary contact is permitted; positive-area overlap is not.
+  function polygonsOverlapStrict(a,b){
+    var e=.015,A=a.box,B=b.box;
+    if(Math.min(A.x1,B.x1)-Math.max(A.x0,B.x0)<=e||Math.min(A.y1,B.y1)-Math.max(A.y0,B.y0)<=e) return false;
+    var ap=a.poly,bp=b.poly;
+    for(var i=0,ip=ap.length-1;i<ap.length;ip=i++)for(var j=0,jp=bp.length-1;j<bp.length;jp=j++)
+      if(segmentsProperlyCross(ap[ip],ap[i],bp[jp],bp[j])) return true;
+    for(i=0;i<ap.length;i++)if(pointInPolygon(ap[i],bp)&&distanceToPolygon(ap[i],bp)>e) return true;
+    for(i=0;i<bp.length;i++)if(pointInPolygon(bp[i],ap)&&distanceToPolygon(bp[i],ap)>e) return true;
+    return false;
+  }
+  function visualMacrosOverlap(a,b,gap){
+    var g=gap||0,i,j,ca,cb;
+    for(i=0;i<a.circles.length;i++)for(j=0;j<b.circles.length;j++){
+      ca=a.circles[i];cb=b.circles[j];
+      if(Math.hypot(ca.x-cb.x,ca.y-cb.y)<ca.r+cb.r+g) return true;
+    }
+    for(i=0;i<a.polygons.length;i++)for(j=0;j<b.polygons.length;j++)
+      if(polygonsOverlapStrict(a.polygons[i],b.polygons[j])) return true;
+    return false;
+  }
+  function getMapPieces(){
+    if(MAP_PIECES) return MAP_PIECES;
+    MAP_PIECES=[];
+    MAPCONT.forEach(function(cont,ci){
+      var sub=cont.p.match(/M[^Z]*Z/g)||[];
+      sub.forEach(function(d,si){
+        var poly=mapPathPoints(d); if(poly.length<3) return;
+        var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+        poly.forEach(function(p){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y);});
+        MAP_PIECES.push({id:ci+':'+si,continent:cont.c,d:d,poly:poly,area:polygonArea(poly),box:{x0:x0,y0:y0,x1:x1,y1:y1}});
+      });
+    });
+    return MAP_PIECES;
+  }
+  function stationMapPiece(code,p,pieces){
+    var key=(code||'')+'|'+p.x.toFixed(2)+'|'+p.y.toFixed(2);
+    if(STATION_PLATE_CACHE[key]) return STATION_PLATE_CACHE[key];
+    var inside=[];
+    pieces.forEach(function(piece){ if(pointInPolygon(p,piece.poly)) inside.push(piece); });
+    inside.sort(function(a,b){return a.area-b.area;});
+    var chosen=inside[0];
+    if(!chosen){
+      var best=Infinity;
+      pieces.forEach(function(piece){var d=distanceToPolygon(p,piece.poly);if(d<best){best=d;chosen=piece;}});
+    }
+    STATION_PLATE_CACHE[key]=chosen; return chosen;
+  }
+  // Movement groups are driven by the station's region setting first. The
+  // requested joint plates keep North America, Europe, and China/India intact;
+  // the broad Northeast Asia region remains split into Japan and Korea.
+  var PLATE_GROUPS=[
+    {id:'north_america',label:'美國／加拿大',codes:['YYZ','YVR','ORD','DFW','IAH','LAX','JFK','SEA','SFO','IAD']},
+    {id:'europe',label:'歐洲',codes:['LHR','AMS','CDG','MUC','MXP','VIE'],targetZone:'upper_middle'},
+    {id:'southeast_asia',label:'東南亞',codes:['DPS','CGK','KTI','KUL','CEB','CRK','MNL','SIN','BKK','CNX','DAD','HAN','SGN']},
+    {id:'china',label:'中國大陸／印度',codes:['PEK','CAN','TFU','HGH','PVG','SHA','SZX','XMN','HKG','MFM','DEL']},
+    {id:'taiwan',label:'台灣',codes:['KHH','TPE','TSA']},
+    {id:'korea',label:'韓國',codes:['PUS','GMP','ICN']},
+    {id:'japan',label:'日本',codes:['AOJ','FUK','KMQ','MYJ','OKA','KIX','UKB','SDJ','CTS','HND','NRT']},
+    {id:'oceania',label:'大洋洲',codes:['BNE'],targetZone:'lower_middle'}
+  ];
+  var PLATE_GROUP_BY_ID={},PLATE_GROUP_BY_CODE={},MAP_GROUP_PIECES=null;
+  PLATE_GROUPS.forEach(function(g){PLATE_GROUP_BY_ID[g.id]=g;g.codes.forEach(function(c){PLATE_GROUP_BY_CODE[c]=g;});});
+  function normalizedRegion(v){return String(v||'').replace(/\s/g,'').toLowerCase();}
+  function stationPlateGroup(s,geoPiece){
+    var r=normalizedRegion(s.region),code=String(s.code||'').toUpperCase(),id='';
+    if(/^(中國|中国|大陸|大陆|中國大陸|中国大陆|港澳)$/.test(r)) id='china';
+    else if(/^(台灣|台湾|台灣區|台湾区)$/.test(r)) id='taiwan';
+    else if(/^(日本)$/.test(r)) id='japan';
+    else if(/^(韓國|韩国|南韓|南韩)$/.test(r)) id='korea';
+    else if(/^(南亞|南亚|印度)$/.test(r)) id='china';
+    else if(/^(東南亞|东南亚)$/.test(r)) id='southeast_asia';
+    else if(/^(紐澳|纽澳|澳紐|澳纽|澳洲|大洋洲)$/.test(r)) id='oceania';
+    else if(/^(美國|美国|usa|us|加拿大|canada)$/.test(r)) id='north_america';
+    else if(/^(西歐|西欧|westerneurope|南歐|南欧|southerneurope)$/.test(r)) id='europe';
+    else if(r==='美洲') id='north_america';
+    else if(r==='歐洲'||r==='欧洲') id='europe';
+    else if(r==='東北亞'||r==='东北亚') id=(code==='PUS'||code==='GMP'||code==='ICN')?'korea':'japan';
+    if(!id&&PLATE_GROUP_BY_CODE[code]) id=PLATE_GROUP_BY_CODE[code].id;
+    if(id) return PLATE_GROUP_BY_ID[id];
+    return{id:'geo:'+(geoPiece?geoPiece.id:(s.id||code)),label:s.region||'其他場站',codes:[code],fallback:true};
+  }
+  function getPlateGroupPieces(pieces){
+    if(MAP_GROUP_PIECES) return MAP_GROUP_PIECES;
+    var byId={};pieces.forEach(function(p){byId[p.id]=p;});MAP_GROUP_PIECES={};
+    PLATE_GROUPS.forEach(function(group){
+      var seen={},list=[];
+      group.codes.forEach(function(code){
+        var g=GEO[code];if(!g) return;var p=mproj(g.lat,g.lon),piece=stationMapPiece(code,p,pieces);
+        if(piece&&!seen[piece.id]){seen[piece.id]=true;list.push(byId[piece.id]);}
+      });
+      MAP_GROUP_PIECES[group.id]=list;
+    });
+    return MAP_GROUP_PIECES;
+  }
+  function transformedPlateBox(n,fx,fy,scale){
+    var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,s=scale||1;
+    (n.pieces||[]).forEach(function(piece){var b=piece.box;x0=Math.min(x0,fx+(b.x0-n.cx)*s);x1=Math.max(x1,fx+(b.x1-n.cx)*s);y0=Math.min(y0,fy+(b.y0-n.cy)*s);y1=Math.max(y1,fy+(b.y1-n.cy)*s);});
+    if(x0===Infinity) n.items.forEach(function(m){var r=m.R*s;x0=Math.min(x0,fx+(m.x-n.cx)*s-r);x1=Math.max(x1,fx+(m.x-n.cx)*s+r);y0=Math.min(y0,fy+(m.y-n.cy)*s-r);y1=Math.max(y1,fy+(m.y-n.cy)*s+r);});
+    return{x0:x0,y0:y0,x1:x1,y1:y1,w:x1-x0,h:y1-y0};
+  }
+  function plateMacroId(id){
+    if(id==='north_america') return 'americas';
+    if(id==='europe') return 'europe';
+    if(id==='oceania') return 'oceania';
+    return 'asia';
+  }
+  var MAP_DOT_GAP=.65;
+  // Zoom is staged as one continuous four-block composition. First the four
+  // geographic blocks gather into a compact cross around the map centre; only
+  // after that cross is established do they enlarge and extend outward. Every
+  // child plate in Asia receives the same macro transform, so China/India,
+  // Taiwan, Korea, Japan and Southeast Asia keep their true relative geography.
+  function layoutStationPlates(nodes,zoom){
+    var raw=Math.max(0,Math.min(1,((zoom||1)-1)/(MAP_MAX_ZOOM-1)));
+    var smooth=function(v){v=Math.max(0,Math.min(1,v));return v*v*(3-2*v);};
+    var gatherRaw=Math.max(0,Math.min(1,raw/(1/3))),gather=smooth(gatherRaw),expand=smooth((raw-1/3)/(2/3)),out={};
+    // Vertical lanes settle first, then horizontal gathering follows. The two
+    // zero-slope curves form a smooth, single-direction route around neighbours.
+    var laneLead=smooth(gatherRaw/.48),laneFollow=smooth((gatherRaw-.40)/.60);
+    if(!nodes.length) return out;
+    var mapCx=BASE_VB.x+BASE_VB.w*.5,mapCy=BASE_VB.y+BASE_VB.h*.5,macros={},maxStationR=0;
+    var directions={americas:{x:-1,y:0},europe:{x:0,y:-1},asia:{x:1,y:0},oceania:{x:0,y:1}};
+    nodes.forEach(function(n){
+      var id=plateMacroId(n.id),m=macros[id]||(macros[id]={id:id,nodes:[],items:[],pieces:[],dir:directions[id],x0:Infinity,y0:Infinity,x1:-Infinity,y1:-Infinity});
+      n.macroId=id;m.nodes.push(n);m.items=m.items.concat(n.items);m.pieces=m.pieces.concat(n.pieces||[]);
+      (n.pieces||[]).forEach(function(piece){var b=piece.box;m.x0=Math.min(m.x0,b.x0);m.y0=Math.min(m.y0,b.y0);m.x1=Math.max(m.x1,b.x1);m.y1=Math.max(m.y1,b.y1);});
+      n.items.forEach(function(q){var r=q.R||0;m.x0=Math.min(m.x0,q.x-r);m.y0=Math.min(m.y0,q.y-r);m.x1=Math.max(m.x1,q.x+r);m.y1=Math.max(m.y1,q.y+r);});
+      n.items.forEach(function(q){maxStationR=Math.max(maxStationR,q.R||0);});
+    });
+    var laneRadiusBoost=Math.max(0,maxStationR-11)*4;
+    var near={
+      americas:{x:mapCx-BASE_VB.w*.20,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.08-laneRadiusBoost},
+      asia:{x:mapCx+BASE_VB.w*.20,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.32+laneRadiusBoost}
+    };
+    var far={
+      americas:{x:mapCx-BASE_VB.w*.22,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.08-laneRadiusBoost},
+      asia:{x:mapCx+BASE_VB.w*.22,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.32+laneRadiusBoost}
+    };
+    var macroList=Object.keys(macros).map(function(id){
+      var m=macros[id];
+      if(m.x0===Infinity){m.x0=m.x1=m.nodes[0].cx;m.y0=m.y1=m.nodes[0].cy;}
+      // Forty percent of the available enlargement happens while the blocks
+      // gather; the remaining sixty percent accompanies the outward extension.
+      // Both phases meet with zero slope, so scale and translation stay smooth.
+      m.cx=(m.x0+m.x1)/2;m.cy=(m.y0+m.y1)/2;m.scale=1+.32*(.4*gather+.6*expand);
+      m.fx=m.cx+(near[id].x-m.cx)*laneFollow+(far[id].x-near[id].x)*expand;
+      m.fy=m.cy+(near[id].y-m.cy)*laneLead+(far[id].y-near[id].y)*expand;
+      m.targetFx=m.fx;m.targetFy=m.fy;
+      return m;
+    });
+    function pointOn(m,q){return{x:m.fx+(q.x-m.cx)*m.scale,y:m.fy+(q.y-m.cy)*m.scale,r:q.R*m.scale};}
+    function macroBox(m){
+      var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+      m.pieces.forEach(function(piece){var b=piece.box;x0=Math.min(x0,m.fx+(b.x0-m.cx)*m.scale);x1=Math.max(x1,m.fx+(b.x1-m.cx)*m.scale);y0=Math.min(y0,m.fy+(b.y0-m.cy)*m.scale);y1=Math.max(y1,m.fy+(b.y1-m.cy)*m.scale);});
+      m.items.forEach(function(q){var p=pointOn(m,q),r=p.r+2;x0=Math.min(x0,p.x-r);x1=Math.max(x1,p.x+r);y0=Math.min(y0,p.y-r);y1=Math.max(y1,p.y+r);});
+      return{x0:x0,y0:y0,x1:x1,y1:y1,w:x1-x0,h:y1-y0};
+    }
+    function macroVisual(m){
+      return{
+        circles:m.items.map(function(q){var p=pointOn(m,q);return{x:p.x,y:p.y,r:p.r};}),
+        polygons:m.pieces.map(function(piece){return transformedPieceGeometry(piece,m.cx,m.cy,m.fx,m.fy,m.scale);})
+      };
+    }
+    function pairConflicts(a,b){return visualMacrosOverlap(macroVisual(a),macroVisual(b),MAP_DOT_GAP);}
+    function setPairShift(a,b,ax,ay,bx,by,d){
+      a.fx=ax+a.dir.x*d;a.fy=ay+a.dir.y*d;b.fx=bx+b.dir.x*d;b.fy=by+b.dir.y*d;
+    }
+    function separatePair(a,b){
+      if(!pairConflicts(a,b)) return false;
+      var ax=a.fx,ay=a.fy,bx=b.fx,by=b.fy,lo=0,hi=.25;
+      while(hi<2048){setPairShift(a,b,ax,ay,bx,by,hi);if(!pairConflicts(a,b)) break;hi*=2;}
+      for(var k=0;k<22;k++){var mid=(lo+hi)/2;setPairShift(a,b,ax,ay,bx,by,mid);if(pairConflicts(a,b)) lo=mid;else hi=mid;}
+      setPairShift(a,b,ax,ay,bx,by,hi+.025);return true;
+    }
+    function resolveMacroConflicts(){
+      if(raw<=0) return;
+      for(var it=0;it<48;it++){
+        var moved=false;
+        for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++)if(separatePair(macroList[i],macroList[j])) moved=true;
+        if(!moved) break;
+      }
+    }
+    // All visible peer geometry participates in collision resolution: station
+    // circles against circles, and exact white-line polygons against polygons.
+    // A correction moves the complete macro only farther along its assigned arm.
+    resolveMacroConflicts();
+    // At maximum zoom, match the content envelope to the ViewBox aspect ratio
+    // without reopening the centre: horizontal shortage extends the left/right
+    // arms; vertical shortage is absorbed by the tall America/Asia silhouettes.
+    if(expand>0&&macros.americas&&macros.europe&&macros.asia&&macros.oceania){
+      var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+      macroList.forEach(function(m){var b=macroBox(m);x0=Math.min(x0,b.x0);y0=Math.min(y0,b.y0);x1=Math.max(x1,b.x1);y1=Math.max(y1,b.y1);});
+      var w=x1-x0+36,h=y1-y0+32,want=BASE_VB.w/BASE_VB.h,have=w/h;
+      if(have<want){var addX=(want*h-w)*.5*expand;macros.americas.fx-=addX;macros.asia.fx+=addX;}
+      else {
+        // Keep the central top/bottom blocks close. Use the naturally tall
+        // America and Asia blocks to supply the extra outer height required by
+        // the wide ViewBox instead of reopening a large empty centre rectangle.
+        var needH=(w/want-h)*expand,ab=macroBox(macros.americas),sb=macroBox(macros.asia);
+        macros.americas.fy-=Math.max(0,ab.y0-(y0-needH*.5));
+        macros.asia.fy+=Math.max(0,(y1+needH*.5)-sb.y1);
+      }
+    }
+    // Aspect filling can move America or Asia vertically, so enforce the same
+    // exact no-overlap rule once more on the final composed frame.
+    resolveMacroConflicts();
+    function allMacrosSafe(){
+      for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++)if(pairConflicts(macroList[i],macroList[j])) return false;
+      return true;
+    }
+    function compactOppositePair(a,b){
+      if(!a||!b) return;
+      var sa=(a.fx-a.targetFx)*a.dir.x+(a.fy-a.targetFy)*a.dir.y;
+      var sb=(b.fx-b.targetFx)*b.dir.x+(b.fy-b.targetFy)*b.dir.y,max=Math.max(0,Math.min(sa,sb));
+      if(max<.05) return;
+      var ax=a.fx,ay=a.fy,bx=b.fx,by=b.fy;
+      function set(d){a.fx=ax-a.dir.x*d;a.fy=ay-a.dir.y*d;b.fx=bx-b.dir.x*d;b.fy=by-b.dir.y*d;}
+      set(max);
+      if(allMacrosSafe()) return;
+      var lo=0,hi=max;for(var k=0;k<22;k++){var mid=(lo+hi)/2;set(mid);if(allMacrosSafe()) lo=mid;else hi=mid;}
+      set(Math.max(0,lo-.025));
+    }
+    // After the vertical aspect adjustment, reclaim only collision-generated
+    // excess separation. This packs opposite arms tightly without crossing the
+    // intended target or allowing any pair of white-line polygons to overlap.
+    for(var compactPass=0;compactPass<3;compactPass++){
+      compactOppositePair(macros.americas,macros.asia);
+      compactOppositePair(macros.europe,macros.oceania);
+    }
+    nodes.forEach(function(n){
+      var m=macros[n.macroId],fx=m.fx+(n.cx-m.cx)*m.scale,fy=m.fy+(n.cy-m.cy)*m.scale;
+      out[n.id]={dx:fx-n.cx,dy:fy-n.cy,cx:n.cx,cy:n.cy,fx:fx,fy:fy,scale:m.scale,count:n.items.length,macroId:n.macroId};
+    });
+    return out;
+  }
+  function plateTransition(id,offset,previous,hint){
+    var o=offset||{dx:0,dy:0,scale:1,cx:0,cy:0},p=(previous&&previous[id])||{dx:0,dy:0,scale:1,cx:o.cx,cy:o.cy};
+    var start={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:o.cx,cy:o.cy},end={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:o.cx,cy:o.cy};
+    return{routed:false,keyTimes:[0,1],points:[start,end]};
+  }
+  function transitionPointAt(tr,t){
+    var kt=tr.keyTimes,pts=tr.points;if(t<=0) return pts[0];if(t>=1) return pts[pts.length-1];
+    for(var i=1;i<kt.length;i++)if(t<=kt[i]){var a=pts[i-1],b=pts[i],u=(t-kt[i-1])/(kt[i]-kt[i-1]);return{dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:b.cx,cy:b.cy};}
+    return pts[pts.length-1];
+  }
+  function buildSafePlateTransitions(nodes,offsets,previous,animate,fromZoom,toZoom){
+    var result={},start={},finish={};
+    nodes.forEach(function(n){
+      var p=(previous&&previous[n.id])||{dx:0,dy:0,scale:1},o=offsets[n.id]||{dx:0,dy:0,scale:1};
+      start[n.id]={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:n.cx,cy:n.cy};finish[n.id]={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:n.cx,cy:n.cy};
+    });
+    // A zoom animation follows the same one-way zoom trajectory as the settled
+    // layouts. Reversing the zoom traverses these samples in reverse, so there
+    // is no corrective overshoot or visible spring-back.
+    var zoomRoute=animate&&isFinite(fromZoom)&&isFinite(toZoom)&&Math.abs(toZoom-fromZoom)>.0001;
+    var waypoints=[{time:0,points:start}];
+    function layoutPointsAt(time){
+      var z=fromZoom+(toZoom-fromZoom)*time,o=layoutStationPlates(nodes,z),points={};
+      nodes.forEach(function(n){var q=o[n.id]||{dx:0,dy:0,scale:1};points[n.id]={dx:+q.dx||0,dy:+q.dy||0,scale:+q.scale||1,cx:n.cx,cy:n.cy};});
+      return points;
+    }
+    function pointsAtZoom(z){
+      if(Math.abs(z-fromZoom)<1e-7) return start;if(Math.abs(z-toZoom)<1e-7) return finish;
+      return layoutPointsAt((z-fromZoom)/(toZoom-fromZoom));
+    }
+    function stagedGatherPoints(low,high){
+      var points={},by={};nodes.forEach(function(n){(by[plateMacroId(n.id)]||(by[plateMacroId(n.id)]=[])).push(n);});
+      Object.keys(by).forEach(function(id){
+        var list=by[id],ref=list[0],l=low[ref.id],h=high[ref.id],s=l.scale,fx=ref.cx+l.dx,fy=ref.cy+h.dy;
+        list.forEach(function(n){points[n.id]={dx:fx+(n.cx-ref.cx)*s-n.cx,dy:fy+(n.cy-ref.cy)*s-n.cy,scale:s,cx:n.cx,cy:n.cy};});
+      });return points;
+    }
+    function stagedExpandPoints(low,high){
+      var points={},by={};nodes.forEach(function(n){(by[plateMacroId(n.id)]||(by[plateMacroId(n.id)]=[])).push(n);});
+      Object.keys(by).forEach(function(id){
+        var list=by[id],ref=list[0],l=low[ref.id],h=high[ref.id],s=l.scale,fx=ref.cx+h.dx,fy=ref.cy+h.dy;
+        list.forEach(function(n){points[n.id]={dx:fx+(n.cx-ref.cx)*s-n.cx,dy:fy+(n.cy-ref.cy)*s-n.cy,scale:s,cx:n.cx,cy:n.cy};});
+      });return points;
+    }
+    if(zoomRoute){
+      var lowZoom=Math.min(fromZoom,toZoom),highZoom=Math.max(fromZoom,toZoom),canonical=[];
+      var cursorZoom=lowZoom,cursorPoints=pointsAtZoom(lowZoom);canonical.push({zoom:cursorZoom,points:cursorPoints});
+      if(cursorZoom<2){
+        var gatherEnd=Math.min(2,highZoom),gatherPoints=pointsAtZoom(gatherEnd);
+        canonical.push({zoom:(cursorZoom+gatherEnd)/2,points:stagedGatherPoints(cursorPoints,gatherPoints)});
+        canonical.push({zoom:gatherEnd,points:gatherPoints});cursorZoom=gatherEnd;cursorPoints=gatherPoints;
+      }
+      if(highZoom>cursorZoom){
+        var highPoints=pointsAtZoom(highZoom);
+        canonical.push({zoom:(cursorZoom+highZoom)/2,points:stagedExpandPoints(cursorPoints,highPoints)});
+        canonical.push({zoom:highZoom,points:highPoints});
+      }
+      waypoints=canonical.map(function(w){return{time:(w.zoom-fromZoom)/(toZoom-fromZoom),points:w.points};}).sort(function(a,b){return a.time-b.time;});
+    }
+    else waypoints.push({time:1,points:finish});
+    function stationAt(n,m,q){return{x:n.cx+q.dx+(m.x-n.cx)*q.scale,y:n.cy+q.dy+(m.y-n.cy)*q.scale,r:m.R*q.scale};}
+    function pointsBetween(left,right,u){
+      var points={};nodes.forEach(function(n){var a=left.points[n.id],b=right.points[n.id];points[n.id]={dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:n.cx,cy:n.cy};});return points;
+    }
+    function visualMacrosAt(points){
+      var by={};nodes.forEach(function(n){
+        var q=points[n.id],id=plateMacroId(n.id),v=by[id]||(by[id]={id:id,circles:[],polygons:[]}),fx=n.cx+q.dx,fy=n.cy+q.dy;
+        n.items.forEach(function(m){v.circles.push(stationAt(n,m,q));});
+        n.pieces.forEach(function(piece){v.polygons.push(transformedPieceGeometry(piece,n.cx,n.cy,fx,fy,q.scale));});
+      });return Object.keys(by).map(function(id){return by[id];});
+    }
+    // Circles are tested continuously; exact plate polygons are sampled densely
+    // along each short routed segment.
+    function unsafeSegment(left,right){
+      var worst=null;
+      for(var i=0;i<nodes.length;i++)for(var j=i+1;j<nodes.length;j++){
+        var a=nodes[i],b=nodes[j],a0=left.points[a.id],a1=right.points[a.id],b0=left.points[b.id],b1=right.points[b.id];
+        for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
+          var ma=a.items[ai],mb=b.items[bi],pa0=stationAt(a,ma,a0),pa1=stationAt(a,ma,a1),pb0=stationAt(b,mb,b0),pb1=stationAt(b,mb,b1);
+          var px=pa0.x-pb0.x,py=pa0.y-pb0.y,vx=(pa1.x-pb1.x)-px,vy=(pa1.y-pb1.y)-py,r0=pa0.r+pb0.r+.2,dr=(pa1.r+pb1.r+.2)-r0;
+          var qa=vx*vx+vy*vy-dr*dr,qb=2*(px*vx+py*vy-r0*dr),u=qa>1e-9?Math.max(0,Math.min(1,-qb/(2*qa))):0;
+          var rx=px+vx*u,ry=py+vy*u,rr=r0+dr*u,clear=rx*rx+ry*ry-rr*rr;
+          if(clear<-.01&&(!worst||clear<worst.clear)) worst={clear:clear,u:u};
+        }
+      }
+      for(var sample=0;sample<=6;sample++){
+        var su=sample/6,visuals=visualMacrosAt(pointsBetween(left,right,su));
+        for(i=0;i<visuals.length;i++)for(j=i+1;j<visuals.length;j++){
+          if(visualMacrosOverlap(visuals[i],visuals[j],MAP_DOT_GAP)) return{clear:-1e12,u:su};
+        }
+      }
+      return worst;
+    }
+    function solveWaypoint(guess){
+      var work={},macroBy={},dirs={americas:{x:-1,y:0},europe:{x:0,y:-1},asia:{x:1,y:0},oceania:{x:0,y:1}};
+      nodes.forEach(function(n){
+        var q=guess[n.id],mid=plateMacroId(n.id),w={id:n.id,macroId:mid,cx:n.cx,cy:n.cy,items:n.items,pieces:n.pieces,scale:q.scale,fx:n.cx+q.dx,fy:n.cy+q.dy};
+        work[n.id]=w;(macroBy[mid]||(macroBy[mid]={id:mid,dir:dirs[mid],nodes:[]})).nodes.push(w);
+      });
+      var macroList=Object.keys(macroBy).map(function(id){return macroBy[id];});
+      function shift(m,amount){m.nodes.forEach(function(n){n.fx+=m.dir.x*amount;n.fy+=m.dir.y*amount;});}
+      function workVisual(m){
+        var v={circles:[],polygons:[]};m.nodes.forEach(function(n){
+          n.items.forEach(function(q){v.circles.push({x:n.fx+(q.x-n.cx)*n.scale,y:n.fy+(q.y-n.cy)*n.scale,r:q.R*n.scale});});
+          n.pieces.forEach(function(piece){v.polygons.push(transformedPieceGeometry(piece,n.cx,n.cy,n.fx,n.fy,n.scale));});
+        });return v;
+      }
+      // Keep every intermediate correction rigid at the four-block level.
+      // A collision can only push America left, Europe up, Asia right, or
+      // Oceania down, preserving the requested cross throughout the animation.
+      for(var it=0;it<520;it++){
+        var moved=false;
+        for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++){
+          var a=macroList[i],b=macroList[j],worst=0;
+          a.nodes.forEach(function(an){b.nodes.forEach(function(bn){an.items.forEach(function(ma){bn.items.forEach(function(mb){
+            var ax=an.fx+(ma.x-an.cx)*an.scale,ay=an.fy+(ma.y-an.cy)*an.scale,bx=bn.fx+(mb.x-bn.cx)*bn.scale,by=bn.fy+(mb.y-bn.cy)*bn.scale;
+            var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*an.scale+mb.R*bn.scale+MAP_DOT_GAP;
+            if(d<min) worst=Math.max(worst,min-d);
+          });});});});
+          if(visualMacrosOverlap(workVisual(a),workVisual(b),MAP_DOT_GAP)) worst=Math.max(worst,.5);
+          if(worst>0){var rx=a.dir.x-b.dir.x,ry=a.dir.y-b.dir.y,rate=Math.sqrt(rx*rx+ry*ry)||1,p=worst/rate*.58+.02;shift(a,p);shift(b,p);moved=true;}
+        }
+        if(!moved) break;
+      }
+      var solved={};nodes.forEach(function(n){var w=work[n.id];solved[n.id]={dx:w.fx-n.cx,dy:w.fy-n.cy,scale:w.scale,cx:n.cx,cy:n.cy};});return solved;
+    }
+    // Refine zoom segments with another true zoom-layout sample. The fallback
+    // solver is retained only for non-zoom refits (for example after filtering).
+    if(animate) for(var guard=0;guard<120;guard++){
+      var hit=null,index=-1;
+      for(var si=0;si<waypoints.length-1;si++){var bad=unsafeSegment(waypoints[si],waypoints[si+1]);if(bad){hit=bad;index=si;break;}}
+      if(!hit||waypoints.length>=96) break;
+      var left=waypoints[index],right=waypoints[index+1],u=zoomRoute ? 0.5 : Math.max(.18,Math.min(.82,hit.u)),guess={};
+      nodes.forEach(function(n){var a=left.points[n.id],b=right.points[n.id];guess[n.id]={dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:n.cx,cy:n.cy};});
+      var nextTime=left.time+(right.time-left.time)*u;
+      waypoints.splice(index+1,0,{time:nextTime,points:zoomRoute?layoutPointsAt(nextTime):solveWaypoint(guess)});
+    }
+    var keyTimes=waypoints.map(function(w){return +w.time.toFixed(6);});
+    nodes.forEach(function(n){result[n.id]={routed:animate&&waypoints.length>2,staged:animate,keyTimes:keyTimes,points:waypoints.map(function(w){return w.points[n.id];})};});
+    return result;
+  }
+  function plateMotion(id,offset,previous,animate,transition){
+    var o=offset||{dx:0,dy:0,scale:1,cx:0,cy:0},p=(previous&&previous[id])||{dx:0,dy:0,scale:1,cx:o.cx,cy:o.cy};
+    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),sc=+(o.scale||1).toFixed(4),psc=+(p.scale||1).toFixed(4),moveAnim='',scaleAnim='',tr=transition||plateTransition(id,o,previous);
+    if(animate&&tr.keyTimes.length>2){
+      var values=tr.points.map(function(q){return(+q.dx.toFixed(2))+' '+(+q.dy.toFixed(2));}).join(';'),scales=tr.points.map(function(q){return(+q.scale.toFixed(4));}).join(';'),times=tr.keyTimes.join(';');
+      var splines=tr.points.slice(1).map(function(){return'.42 0 .58 1';}).join(';');
+      moveAnim='<animateTransform attributeName="transform" type="translate" values="'+values+'" keyTimes="'+times+'" keySplines="'+splines+'" dur=".48s" fill="freeze" calcMode="spline"/>';
+      scaleAnim='<animateTransform attributeName="transform" type="scale" values="'+scales+'" keyTimes="'+times+'" keySplines="'+splines+'" dur=".48s" fill="freeze" calcMode="spline"/>';
+    }
+    if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
+      if(tr.keyTimes.length===2) moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".42 0 .58 1"/>';
+    }
+    if(animate&&Math.abs(sc-psc)>.0005&&tr.keyTimes.length===2) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".42 0 .58 1"/>';
+    return {open:'<g transform="translate('+dx+' '+dy+')">'+moveAnim+'<g transform="translate('+o.cx.toFixed(2)+' '+o.cy.toFixed(2)+')"><g transform="scale('+sc+')">'+scaleAnim+'<g transform="translate('+(-o.cx).toFixed(2)+' '+(-o.cy).toFixed(2)+')">',close:'</g></g></g></g>'};
+  }
+  // The frame follows the content's own aspect ratio, so a lone plate group
+  // (e.g. one filtered region) fills the pane instead of floating inside
+  // fixed-ratio padding. The ratio is clamped: never flatter than the full
+  // world map, never taller than MAP_MIN_RATIO, and plates are never distorted
+  // — only the pane's height adapts.
+  var MAP_MIN_RATIO=1.6;
+  function frameMapBounds(b){
+    var maxR=BASE_VB.w/BASE_VB.h, have=b.w/b.h;
+    if(have>maxR){ var nh=b.w/maxR, cy=b.y+b.h/2; return {x:b.x,y:cy-nh/2,w:b.w,h:nh}; }
+    if(have<MAP_MIN_RATIO){ var nw=b.h*MAP_MIN_RATIO, cx=b.x+b.w/2; return {x:cx-nw/2,y:b.y,w:nw,h:b.h}; }
+    return b;
+  }
+  function plateContentFrame(pool,nodes,offsets,names){
+    if(!pool.length) return{x:BASE_VB.x,y:BASE_VB.y,w:BASE_VB.w,h:BASE_VB.h};
+    var mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+    pool.forEach(function(m){
+      var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1,x=o.cx+o.dx+(m.x-o.cx)*s,y=o.cy+o.dy+(m.y-o.cy)*s,vr=m.R*s+4;
+      mnx=Math.min(mnx,x-vr);mxx=Math.max(mxx,x+vr);mny=Math.min(mny,y-vr);mxy=Math.max(mxy,y+vr);
+    });
+    nodes.forEach(function(n){
+      var o=offsets[n.id]||{dx:0,dy:0,scale:1,cx:n.cx,cy:n.cy},s=o.scale||1;
+      (n.pieces||[]).forEach(function(piece){var b=piece.box,x0=o.cx+o.dx+(b.x0-o.cx)*s,x1=o.cx+o.dx+(b.x1-o.cx)*s,y0=o.cy+o.dy+(b.y0-o.cy)*s,y1=o.cy+o.dy+(b.y1-o.cy)*s;mnx=Math.min(mnx,x0);mxx=Math.max(mxx,x1);mny=Math.min(mny,y0);mxy=Math.max(mxy,y1);});
+    });
+    // Margins scale with the framed content (capped at the full-world values),
+    // so a small filtered region is wrapped tightly and fills the pane.
+    var cw=mxx-mnx,ch=mxy-mny;
+    var mgx=Math.min(names?42:18,Math.max(4,cw*(names?.07:.035)));
+    var mgy=Math.min(names?34:16,Math.max(4,ch*(names?.07:.035)));
+    return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:cw+2*mgx,h:ch+2*mgy});
+  }
+  function unionMapFrames(a,b){
+    var x0=Math.min(a.x,b.x),y0=Math.min(a.y,b.y),x1=Math.max(a.x+a.w,b.x+b.w),y1=Math.max(a.y+a.h,b.y+b.h);
+    return frameMapBounds({x:x0,y:y0,w:x1-x0,h:y1-y0});
+  }
+  function vbText(v){return v.x+' '+v.y+' '+v.w+' '+v.h;}
   // continent -> our-region membership for choropleth (based on station.region groups)
   var CONT_LABEL = {
     'North America':'美洲','South America':'南美','Europe':'歐洲','Africa':'非洲','Asia':'亞洲','Oceania':'大洋洲'
@@ -1266,33 +1742,71 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
-  // Spread overlapping map dots apart (collision resolution) with a spring back
-  // to each dot's true geographic point — dense regions fan out, isolated dots
-  // stay put, and nothing overlaps.
-  function spreadDots(items){
-    var N=items.length, pad=1.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy;
+  // Keep every station at its true projected geographic coordinate. A circle
+  // only leaves its real spot when a larger neighbour physically overlaps it, and
+  // then by the least distance needed — always springing back toward home and
+  // preserving every east/west and north/south bearing. No compression toward
+  // region centres, so positions match the real map at any circle size or zoom.
+  function spreadDots(items, box){
+    var N=items.length, pad=MAP_DOT_GAP, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
+    // Home is the true geographic projection; circles start exactly on it.
+    items.forEach(function(m){m.px=m.tx;m.py=m.ty;m.x=m.tx;m.y=m.ty;});
     // phase 1: collide + weak spring to home (positions dots near geography)
-    for(var it=0; it<110; it++){
+    for(var it=0; it<180; it++){
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
         dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
-        if(d<min){ push=(min-d)/2; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; }
+        if(d<min){
+          push=(min-d)/2;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;
+        }
       }
-      for(k=0;k<N;k++){ a=items[k]; a.x+=(a.tx-a.x)*0.05; a.y+=(a.ty-a.y)*0.05; }
+      for(k=0;k<N;k++){ a=items[k]; a.x+=(a.px-a.x)*0.05; a.y+=(a.py-a.y)*0.05; }
     }
     // phase 2: collision-only until settled — guarantees no overlap
-    for(it=0; it<60; it++){
+    for(it=0; it<120; it++){
       var moved=false;
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
         dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
-        if(d<min){ push=(min-d)/2+0.02; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; moved=true; }
+        if(d<min){
+          push=(min-d)/2+0.02;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;moved=true;
+        }
+      }
+      if(!moved) break;
+    }
+    // Restore meaningful east/west and north/south ordering inside each region
+    // group, alternating with collision resolution until both constraints hold.
+    // This prevents dense clusters from swapping sides of the real geography.
+    for(it=0;it<420;it++){
+      moved=false;
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i];b=items[j];if(a.plateId!==b.plateId) continue;
+        var gx=a.tx-b.tx,gy=a.ty-b.ty,fix;
+        if(gx>6&&a.x<=b.x+.2){fix=(b.x+.2-a.x)/2+.01;a.x+=fix;b.x-=fix;moved=true;}
+        else if(gx<-6&&a.x>=b.x-.2){fix=(a.x+.2-b.x)/2+.01;a.x-=fix;b.x+=fix;moved=true;}
+        if(gy>6&&a.y<=b.y+.2){fix=(b.y+.2-a.y)/2+.01;a.y+=fix;b.y-=fix;moved=true;}
+        else if(gy<-6&&a.y>=b.y-.2){fix=(a.y+.2-b.y)/2+.01;a.y-=fix;b.y+=fix;moved=true;}
+      }
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i];b=items[j];dx=a.x-b.x;dy=a.y-b.y;d=Math.sqrt(dx*dx+dy*dy)||.01;min=a.R+b.R+pad;
+        if(d<min-.01){
+          push=(min-d)/2+.01;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;moved=true;
+        }
       }
       if(!moved) break;
     }
     for(k=0;k<N;k++){ a=items[k];
-      a.x=Math.max(a.R, Math.min(1000-a.R, a.x));
-      a.y=Math.max(12+a.R, Math.min(420-a.R, a.y));
+      var edge=a.R+4;
+      if(box){
+        a.x=Math.max(box.x0+edge, Math.min(box.x1-edge, a.x));
+        a.y=Math.max(box.y0+edge, Math.min(box.y1-edge, a.y));
+      }
     }
   }
 
@@ -1318,94 +1832,143 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
 
   function mapSVGHTML(){
-    var visible = filteredStations();
-    var ocean = state.mapTheme==='dark' ? '#161E22' : '#EAF1F4';
-    var stroke = state.mapTheme==='dark' ? '#0E1417' : '#FFFFFF';
-    var dotStroke = state.mapTheme==='dark' ? '#0E1417' : '#fff';
-    var leadStroke = state.mapTheme==='dark' ? '#6C7A72' : '#8A968F';
-    var sc = state.dotScale;
-    var names = state.showNames;
-    var twoTone = state.dotColor==='cuss';
-    var cussFrac = names ? 0.70 : 0.56;   // CUSS (top) always the larger share; more room for the label when names show
-    // true equirectangular continents (no distortion)
-    var land = MAPCONT.map(function(c){
-      return '<path d="'+c.p+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
-    }).join('');
-    // build dot list, then spread apart so nothing overlaps (kept near true geo)
-    var pool = visible.filter(function(s){ return GEO[s.code]||(s.lat!=null); }).map(function(s){
-      var g = GEO[s.code] || { lat:+s.lat, lon:+s.lon };
-      var p = mproj(g.lat, g.lon);
-      return { s:s, tx:p.x, ty:p.y, x:p.x, y:p.y, R:baseDotRadius(s)*sc };
+    var visible=filteredStations();
+    var ocean=state.mapTheme==='dark'?'#161E22':'#EAF1F4';
+    var stroke=state.mapTheme==='dark'?'#0E1417':'#FFFFFF';
+    var dotStroke=state.mapTheme==='dark'?'#0E1417':'#fff';
+    var leadStroke=state.mapTheme==='dark'?'#6C7A72':'#8A968F';
+    var sc=state.dotScale,names=state.showNames,twoTone=state.dotColor==='cuss';
+    var cussFrac=names?0.70:0.56,pieces=getMapPieces(),groupPieces=getPlateGroupPieces(pieces);
+
+    // Keep the real geographic point, but derive motion ownership from the
+    // station region. Geometry is only the fallback and the land-shape source.
+    var pool=visible.filter(function(s){return GEO[s.code]||(s.lat!=null);}).map(function(s){
+      var g=GEO[s.code]||{lat:+s.lat,lon:+s.lon},p=mproj(g.lat,g.lon),piece=stationMapPiece(s.code,p,pieces),group=stationPlateGroup(s,piece);
+      return {s:s,plateId:group.id,plateLabel:group.label,group:group,geoPiece:piece,tx:p.x,ty:p.y,x:p.x,y:p.y,R:baseDotRadius(s)*sc};
     });
+    // Resolve circles once in true global geography. Subsequent zoom movement is
+    // uniform per region group, so their settled relative bearings stay intact.
     spreadDots(pool);
-    // draw smaller (lower pax) dots first, big hubs on top
-    pool.sort(function(a,b){ return (a.s.pax||0)-(b.s.pax||0); });
-    // content bounds (uniform, no distortion): tight bbox of every dot + radius,
-    // padded for station-name labels. Used for auto-fit AND to clamp manual zoom/pan
-    // so no circle is ever sliced by — or floats outside — the pane.
-    if(pool.length){
-      var mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
-      pool.forEach(function(m){ mnx=Math.min(mnx,m.x-m.R); mxx=Math.max(mxx,m.x+m.R); mny=Math.min(mny,m.y-m.R); mxy=Math.max(mxy,m.y+m.R); });
-      // extra room for station-name labels (they sit above/around the dots)
-      var mgx = names ? 40 : 22, mgy = names ? 34 : 20;
-      state.mapBounds = { x:mnx-mgx, y:mny-mgy, w:(mxx-mnx)+2*mgx, h:(mxy-mny)+2*mgy };
-      if(state.mapFit) state.mapVB = state.mapBounds;
-    }
-    // remember dot centres/radii so zoom can snap the viewBox to whole circles
-    state.mapPool = pool.map(function(m){ return { x:m.x, y:m.y, R:m.R }; });
-    // label font in world units scales with the current view so on-screen size stays ~constant
-    var vbNow = state.mapVB;
-    var labelFS = Math.max(2.6, Math.min(18, vbNow.w * 0.011)) * (state.mapNameScale||1);
-    var defs = '', dots = '', labelItems = [];
-    pool.forEach(function(m){
-      var s = m.s;
-      var cx = +m.x.toFixed(1), cy = +m.y.toFixed(1);
-      var R = +m.R.toFixed(1);
-      var body;
-      if(twoTone){
-        var cid = 'dc'+s.id;
-        var xL = (cx-R).toFixed(1), yT = (cy-R).toFixed(1), W = (2*R).toFixed(1), FULL = (2*R).toFixed(1);
-        // full SBD base, then CUSS overlay on top — avoids the antialiased seam
-        // a pair of adjacent rects would leave at the split
-        var topH = (2*R*cussFrac).toFixed(1);
-        defs += '<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
-        body = '<g clip-path="url(#'+cid+')">'
-          + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/>'
-          + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/>'
-          + '</g>'
-          + '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="0.9"/>';
-      } else {
-        body = '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="0.9"/>';
+    var grouped={};
+    pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,label:m.plateLabel,group:m.group,items:[]};grouped[m.plateId].items.push(m);});
+    // Future explicitly-pinned groups may opt into activity without a row.
+    // India itself is owned by the active China/India joint group above.
+    PLATE_GROUPS.forEach(function(g){if(pool.length&&g.alwaysActive&&!grouped[g.id]) grouped[g.id]={id:g.id,label:g.label,group:g,items:[]};});
+
+    var nodes=Object.keys(grouped).map(function(id){
+      var g=grouped[id],x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,maxR=0;
+      var land=(groupPieces[id]||[]).slice();
+      g.items.forEach(function(m){x0=Math.min(x0,m.x);x1=Math.max(x1,m.x);y0=Math.min(y0,m.y);y1=Math.max(y1,m.y);maxR=Math.max(maxR,m.R);});
+      if(!land.length){var seen={};g.items.forEach(function(m){if(m.geoPiece&&!seen[m.geoPiece.id]){seen[m.geoPiece.id]=true;land.push(m.geoPiece);}});}
+      if(!g.items.length){
+        var anchors=(g.group.codes||[]).map(function(code){var q=GEO[code];return q?mproj(q.lat,q.lon):null;}).filter(Boolean);
+        if(anchors.length){var ax=0,ay=0;anchors.forEach(function(q){ax+=q.x;ay+=q.y;});x0=x1=ax/anchors.length;y0=y1=ay/anchors.length;}
+        else if(land.length){var lx0=Infinity,ly0=Infinity,lx1=-Infinity,ly1=-Infinity;land.forEach(function(p){lx0=Math.min(lx0,p.box.x0);ly0=Math.min(ly0,p.box.y0);lx1=Math.max(lx1,p.box.x1);ly1=Math.max(ly1,p.box.y1);});x0=x1=(lx0+lx1)/2;y0=y1=(ly0+ly1)/2;}
       }
-      var selRing = s.id===state.selectedId ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>' : '';
-      var kpiRing = (s.kpi && state.showKpiRing) ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>' : '';
-      dots += '<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>';
+      return {id:id,label:g.label,targetZone:g.group.targetZone||'',pieces:land,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
+    });
+    // A white-line path has one owner even if future custom aliases collide.
+    var pieceOwner={};
+    nodes.forEach(function(n){n.pieces=n.pieces.filter(function(piece){if(pieceOwner[piece.id]) return false;pieceOwner[piece.id]=n.id;return true;});});
+    var previous=state.mapPlateOffsets||{},previousZoom=state.mapPlateLayout?state.mapPlateLayout.zoom:(state.mapZoom||1),offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
+    var transitions=buildSafePlateTransitions(nodes,offsets,previous,animate,previousZoom,state.mapZoom||1),hasRoutedTransition=animate;
+    pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1;m.dx=o.dx;m.dy=o.dy;m.plateScale=s;m.plateCx=o.cx;m.plateCy=o.cy;m.fx=o.cx+o.dx+(m.x-o.cx)*s;m.fy=o.cy+o.dy+(m.y-o.cy)*s;});
+
+    // The settled frame is computed up front so every stroke width can scale
+    // with it (sk): a tightly framed lone plate keeps hairline coastlines and
+    // dot rims — the same apparent weight as the full world view — instead of
+    // fat white outlines.
+    var finalFrame=plateContentFrame(pool,nodes,offsets,names);
+    var sk=Math.min(1,finalFrame.w/BASE_VB.w);
+
+    // Remove active region pieces from the background, then draw their exact
+    // original paths as one uniformly transformed group. Background land fades.
+    var occupied={},baseLand='',plateLand='';
+    nodes.forEach(function(n){n.pieces.forEach(function(piece){occupied[piece.id]=true;});});
+    pieces.forEach(function(piece){
+      if(!occupied[piece.id]) baseLand+='<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(0.6*sk).toFixed(3)+'"/>';
+    });
+    var lifted=(state.mapZoom||1)>1.001;
+    nodes.forEach(function(n){
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate,transitions[n.id]);
+      var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+((lifted?1.05:0.6)*sk).toFixed(3)+'"/>';}).join('');
+      plateLand+=motion.open+'<g data-plate-group="'+n.id+'" data-plate-label="'+esc(n.label)+'"'+(lifted&&land?' filter="url(#plateLift)"':'')+'>'+land+'</g>'+motion.close;
+    });
+    // From the very first zoom step (×1.1) the unmoved background plates are
+    // already fully grayscale; they then fade out progressively over the zoom
+    // range. Both channels animate with the plate motion.
+    var zoomRaw=Math.max(0,Math.min(1,((state.mapZoom||1)-1)/(MAP_MAX_ZOOM-1))),fadeT=zoomRaw*zoomRaw*(3-2*zoomRaw);
+    var desatT=(state.mapZoom||1)>1.001?1:0;
+    var baseOpacity=pool.length?1-.88*fadeT:1,oldBase=state.mapBaseOpacity==null?1:state.mapBaseOpacity,baseFade='';
+    var baseSat=pool.length?1-desatT:1,oldSat=state.mapBaseSat==null?1:state.mapBaseSat,satFade='';
+    if(animate&&Math.abs(baseOpacity-oldBase)>.005) baseFade='<animate attributeName="opacity" from="'+oldBase.toFixed(3)+'" to="'+baseOpacity.toFixed(3)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    if(animate&&Math.abs(baseSat-oldSat)>.005) satFade='<animate attributeName="values" from="'+oldSat.toFixed(3)+'" to="'+baseSat.toFixed(3)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    var desatFilter='<filter id="baseDesat"><feColorMatrix type="saturate" values="'+baseSat.toFixed(3)+'">'+satFade+'</feColorMatrix></filter>';
+    var baseLayer='<g data-map-layer="background"'+(baseSat<0.999||satFade?' filter="url(#baseDesat)"':'')+' opacity="'+baseOpacity.toFixed(3)+'">'+baseFade+baseLand+'</g>';
+    state.mapBaseOpacity=baseOpacity;state.mapBaseSat=baseSat;
+
+    // Frame every full moved plate and every complete station circle. During a
+    // transition the old and new frames are both retained, so no intermediate
+    // animation frame can slice a moving station at the pane edge.
+    var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
+    var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
+    var waypointFrames=[];
+    if(animate&&hasRoutedTransition){
+      var waypointTimes=nodes.length?transitions[nodes[0].id].keyTimes.slice(1,-1):[];
+      waypointTimes.forEach(function(t){var via={};nodes.forEach(function(n){via[n.id]=transitionPointAt(transitions[n.id],t);});var f=plateContentFrame(pool,nodes,via,names);waypointFrames.push(f);displayFrame=unionMapFrames(displayFrame,f);});
+    }
+    state.mapBounds=finalFrame;
+    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R*m.plateScale,plateId:m.plateId,plateLabel:m.plateLabel,plateScale:m.plateScale,region:m.s.region,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
+    state.mapVB={x:state.mapBounds.x,y:state.mapBounds.y,w:state.mapBounds.w,h:state.mapBounds.h};
+    state.mapFit=true;
+    state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame,waypoints:waypointFrames,routed:hasRoutedTransition};
+    state.mapPlateTransitions=transitions;
+    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0,scale:1},box=transformedPlateBox(n,n.cx+o.dx,n.cy+o.dy,o.scale||1);return{id:n.id,macroId:n.macroId||plateMacroId(n.id),label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,scale:o.scale||1,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,box:box,codes:n.items.map(function(m){return m.s.code;})};})};
+
+    var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
+    var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="'+(2.2*sk).toFixed(3)+'" stdDeviation="'+(2.2*sk).toFixed(3)+'" flood-color="#10251B" flood-opacity=".34"/></filter>'+desatFilter;
+    var dotBy={},leaderBy={},labelBy={},labelItems=[];
+    function addPart(bucket,id,html){bucket[id]=(bucket[id]||'')+html;}
+    pool.sort(function(a,b){return(a.s.pax||0)-(b.s.pax||0);});
+    pool.forEach(function(m){
+      var s=m.s,cx=+m.x.toFixed(1),cy=+m.y.toFixed(1),R=+m.R.toFixed(1),body;
+      if(twoTone){
+        var cid='dc'+s.id,xL=(cx-R).toFixed(1),yT=(cy-R).toFixed(1),W=(2*R).toFixed(1),FULL=(2*R).toFixed(1),topH=(2*R*cussFrac).toFixed(1);
+        defs+='<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
+        body='<g clip-path="url(#'+cid+')"><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/></g><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="'+(0.9*sk).toFixed(3)+'"/>';
+      }else body='<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="'+(0.9*sk).toFixed(3)+'"/>';
+      var selRing=s.id===state.selectedId?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5*sk).toFixed(2)+'" fill="none" stroke="#00853C" stroke-width="'+(1.6*sk).toFixed(3)+'"/>':'';
+      var kpiRing=(s.kpi&&state.showKpiRing)?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2*sk).toFixed(2)+'" fill="none" stroke="#fff" stroke-width="'+(1.3*sk).toFixed(3)+'"/>':'';
+      addPart(dotBy,m.plateId,'<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>');
       if(names){
-        var hy = twoTone ? (cy - R + R*cussFrac) : cy;   // home = on the dot (CUSS band)
-        labelItems.push({ s:s, cx:cx, cy:cy, fs:labelFS, hx:cx, hy:hy, lx:cx, ly:hy,
-                          w: s.code.length*labelFS*0.62, h: labelFS });
+        var visualR=R*m.plateScale,hy=twoTone?(m.fy-visualR+visualR*cussFrac):m.fy;
+        labelItems.push({s:s,plateId:m.plateId,dx:m.dx,dy:m.dy,scale:m.plateScale,pcx:m.plateCx,pcy:m.plateCy,cx:m.fx,cy:m.fy,fs:labelFS,hx:m.fx,hy:hy,lx:m.fx,ly:hy,w:s.code.length*labelFS*.62,h:labelFS});
       }
     });
-    // de-collide labels and draw leader lines for the ones that got pulled out
-    var leaders = '', labels = '';
-    if(names && labelItems.length){
+    if(names&&labelItems.length){
       layoutLabels(labelItems);
       labelItems.forEach(function(m){
-        var moved = Math.abs(m.lx-m.hx) + Math.abs(m.ly-m.hy) > 1.6;
-        if(moved){
-          leaders += '<line x1="'+m.cx.toFixed(1)+'" y1="'+m.cy.toFixed(1)+'" x2="'+m.lx.toFixed(1)+'" y2="'+m.ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="0.55" stroke-opacity="0.85"/>'
-            + '<circle cx="'+m.lx.toFixed(1)+'" cy="'+m.ly.toFixed(1)+'" r="0.9" fill="'+leadStroke+'"/>';
-        }
-        var by = (m.ly + m.fs*0.34).toFixed(1);
-        labels += '<text x="'+m.lx.toFixed(1)+'" y="'+by+'" text-anchor="middle" font-size="'+m.fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(m.fs*0.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>';
+        var s=m.scale||1,invX=function(x){return m.pcx+(x-m.pcx-m.dx)/s;},invY=function(y){return m.pcy+(y-m.pcy-m.dy)/s;};
+        var cx=invX(m.cx),cy=invY(m.cy),lx=invX(m.lx),ly=invY(m.ly),localFS=m.fs/s,moved=Math.abs(m.lx-m.hx)+Math.abs(m.ly-m.hy)>1.6;
+        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="'+(.55*sk/s).toFixed(3)+'" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="'+(.9*sk/s).toFixed(3)+'" fill="'+leadStroke+'"/>');
+        addPart(labelBy,m.plateId,'<text x="'+lx.toFixed(1)+'" y="'+(ly+localFS*.34).toFixed(1)+'" text-anchor="middle" font-size="'+localFS.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(localFS*.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>');
       });
     }
-    var vb = state.mapVB;
-    // one-shot fold/expand animation when the view (re)fits; consumed so drag/zoom re-renders don't replay it
-    var animClass = state.mapAnim ? ' class="map-unfold"' : '';
-    state.mapAnim = false;
-    return '<svg id="worldmap"'+animClass+' viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:none;cursor:grab" xmlns="http://www.w3.org/2000/svg">'
-      + '<defs>'+defs+'</defs>' + land + leaders + dots + labels + '</svg>';
+    var overlays='';
+    nodes.forEach(function(n){
+      var content=(leaderBy[n.id]||'')+(dotBy[n.id]||'')+(labelBy[n.id]||''); if(!content) return;
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate,transitions[n.id]); overlays+=motion.open+content+motion.close;
+    });
+    state.mapPlateOffsets=offsets;
+
+    var shown=displayFrame,animClass=state.mapAnim?' class="map-unfold"':'',viewMotion='';
+    if(animate&&!hasRoutedTransition&&(Math.abs(startFrame.x-finalFrame.x)>.01||Math.abs(startFrame.y-finalFrame.y)>.01||Math.abs(startFrame.w-finalFrame.w)>.01||Math.abs(startFrame.h-finalFrame.h)>.01)){
+      viewMotion='<animate attributeName="viewBox" from="'+vbText(startFrame)+'" to="'+vbText(finalFrame)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    }
+    var animToken=++state.mapAnimToken;
+    if(animate) setTimeout(function(){if(state.mapAnimToken===animToken&&state.view==='map') render();},520);
+    state.mapAnim=false;
+    return '<svg id="worldmap"'+animClass+' viewBox="'+vbText(shown)+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:pan-y;cursor:default" xmlns="http://www.w3.org/2000/svg"><defs>'+defs+'</defs>'+viewMotion+baseLayer+plateLand+overlays+'</svg>';
   }
 
   function mapPanelHTML(){
@@ -1522,13 +2085,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       return '<div style="position:absolute;left:'+c[0]+'%;top:'+c[1]+'%;transform:translate(-50%,-50%);opacity:.14;pointer-events:none">'+quadIcon(q.icon,q.color,122,1.55)+'</div>';
     }).join('');
 
-    return '<section id="matrix-export" style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
+    return '<section id="matrix-export" style="flex:none;width:520px;align-self:flex-start;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
       +   '<div><div style="font-size:16px;font-weight:900;color:#141819">場站策略定位矩陣</div>'
       +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點上半＝CUSS／下半＝SBD、白圈＝KPI　·　顯示 '+visible.length+' 站</div></div>'
       +   '<button data-action="exportPNG" data-target="matrix-export" data-file="場站定位矩陣.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出矩陣圖片</button>'
       + '</div>'
-      + '<div style="display:flex;gap:8px;margin-top:14px;flex:1;min-height:430px">'
+      + '<div style="display:flex;gap:8px;margin-top:14px;flex:none;height:430px">'
       +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:20px">'
       +     '<span style="font-size:11px;color:#8A938F">高</span>'
       +     '<span style="writing-mode:vertical-rl;font-size:12px;font-weight:700;color:#515A5D;margin:8px 0;letter-spacing:2px">自動化完備度</span>'
@@ -1564,17 +2127,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // shown in the map panel header (next to 匯出地圖圖片)
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
-      +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.8" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
-      +     '<button data-action="zoomMap" data-k="1.25" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
+      +     '<button data-action="zoomMap" data-k="0.1" title="每次放大 0.1（最大 ×10.0）：依場站區域移動並等比例放大板塊，未移動板塊灰階並淡出" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="-0.1" title="每次縮小 0.1：減少板塊位移，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:6px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">圓圈大小</span>'
-      +     '<input type="range" min="0.4" max="2.6" step="0.1" value="'+state.dotScale+'" data-dotsize style="width:78px;accent-color:#00853C;cursor:pointer" />'
+      +     '<input type="range" min="0.05" max="2.6" step="0.05" value="'+state.dotScale+'" data-dotsize style="width:78px;accent-color:#00853C;cursor:pointer" />'
       +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+Math.round(state.dotScale*100)+'%</span>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:6px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">場站名稱字級</span>'
-      +     '<input type="range" min="0.6" max="2.4" step="0.1" value="'+state.mapNameScale+'" data-mapnamesize style="width:78px;accent-color:#00853C;cursor:pointer" />'
+      +     '<input type="range" min="0.05" max="2.4" step="0.05" value="'+state.mapNameScale+'" data-mapnamesize style="width:78px;accent-color:#00853C;cursor:pointer" />'
       +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+Math.round(state.mapNameScale*100)+'%</span>'
       +   '</div>'
       +   '<button data-action="resetMapDefaults" title="將地圖縮放、圓圈大小與場站名稱字級恢復為預設" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">恢復預設</button>'
@@ -1899,7 +2463,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   // ---- event delegation ----
   var app = document.getElementById('app');
-  var mapDrag = null, mapPanned = false;
   app.addEventListener('click', function(e){
     var t = e.target.closest ? e.target.closest('[data-action]') : null;
     if(!t) return;
@@ -1946,7 +2509,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'zoomMap': zoomMap(+t.getAttribute('data-k')); break;
       case 'resetMapView': resetMapView(); break;
       case 'resetMapDefaults': resetMapDefaults(); break;
-      case 'select': if(mapPanned){ mapPanned=false; break; } select(id); break;
+      case 'select': select(id); break;
       case 'toggleKpi': var s=find(id); if(s) setField(id,'kpi',!s.kpi); break;
       case 'toggleBagTag': var sb=find(id); if(sb) setField(id,'bagTag',!sb.bagTag); break;
       case 'setField': setField(id, t.getAttribute('data-field'), t.getAttribute('data-val')); break;
@@ -2067,51 +2630,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
   });
 
-  // ---- map pan (drag) & zoom (wheel) ----
-  document.addEventListener('pointerdown', function(e){
-    var svg = e.target.closest ? e.target.closest('#worldmap') : null;
-    if(!svg) return;
-    var rect = svg.getBoundingClientRect();
-    state.mapFit = false;                    // manual pan takes over from auto-fit
-    mapDrag = { sx:e.clientX, sy:e.clientY, vb:{x:state.mapVB.x,y:state.mapVB.y,w:state.mapVB.w,h:state.mapVB.h}, rect:rect, moved:0 };
-    mapPanned = false;
-    svg.style.cursor = 'grabbing';
-  });
-  document.addEventListener('pointermove', function(e){
-    if(!mapDrag) return;
-    var dx = e.clientX-mapDrag.sx, dy = e.clientY-mapDrag.sy;
-    mapDrag.moved = Math.max(mapDrag.moved, Math.abs(dx)+Math.abs(dy));
-    var vb = mapDrag.vb, rect = mapDrag.rect;
-    state.mapVB = clampVB({ x: vb.x - dx/rect.width*vb.w, y: vb.y - dy/rect.height*vb.h, w: vb.w, h: vb.h });
-    applyMapVB();
-  });
-  document.addEventListener('pointerup', function(){
-    if(!mapDrag) return;
-    var panned = mapDrag.moved > 4;
-    if(panned) mapPanned = true;
-    var svg = document.getElementById('worldmap'); if(svg) svg.style.cursor = 'grab';
-    mapDrag = null;
-    // re-run label de-collision for the new view when names are shown
-    if(panned && state.showNames) render();
-  });
+  // ---- map zoom (wheel) ----
+  // Wheel zoom increases/decreases each intact plate's uniform scale and move;
+  // it never non-uniformly deforms a path or crops a station from the frame.
   document.addEventListener('wheel', function(e){
     var svg = e.target.closest ? e.target.closest('#worldmap') : null;
     if(!svg) return;
     e.preventDefault();
-    var rect = svg.getBoundingClientRect(), vb = state.mapVB;
-    state.mapFit = false;                    // manual zoom takes over from auto-fit
-    var fx = (e.clientX-rect.left)/rect.width, fy = (e.clientY-rect.top)/rect.height;
-    var px = vb.x + fx*vb.w, py = vb.y + fy*vb.h;
-    var k = e.deltaY < 0 ? 1/1.15 : 1.15;
-    var nw = Math.max(120, Math.min(2200, vb.w*k));
-    var nh = nw * (vb.h/vb.w);
-    state.mapVB = clampVB(snapWholeCircles({ x: px - fx*nw, y: py - fy*nh, w: nw, h: nh }));
-    // recompute label layout for the new zoom when names are shown (discrete wheel
-    // steps, so a full re-render is fine); otherwise just move the viewBox.
-    if(state.showNames){ if(!wheelRAF) wheelRAF = requestAnimationFrame(function(){ wheelRAF=0; render(); }); }
-    else applyMapVB();
+    var old=state.mapZoom||1;
+    state.mapZoom=quantZoom(old*(e.deltaY<0?1.15:1/1.15));
+    state.mapFit=true;
+    if(Math.abs(state.mapZoom-old)>0.0001){ state.mapAnim=true; render(); }
   }, { passive:false });
-  var wheelRAF = 0;
 
   render();
 })();
