@@ -15,6 +15,9 @@
   ::-webkit-scrollbar-track{background:transparent}
   @keyframes sheetIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes scrimIn{from{opacity:0}to{opacity:1}}
+  /* fold/expand flourish when the map re-fits — a transient horizontal unfold; ends undistorted */
+  @keyframes mapUnfold{from{transform:scaleX(.86);opacity:.32}to{transform:scaleX(1);opacity:1}}
+  .map-unfold{animation:mapUnfold .45s cubic-bezier(.22,.61,.36,1);transform-origin:50% 50%}
   input:focus,select:focus,textarea:focus{outline:2px solid #00853C;outline-offset:1px}
   button{font-family:inherit}
   .chip{transition:transform .12s ease}
@@ -191,7 +194,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true,
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -241,7 +244,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function closePanel(){ state.selectedId = null; render(); }
   function toggleQuick(){ state.quickMode = !state.quickMode; render(); }
   function setGroupMode(m){ state.groupMode = m; render(); }
-  function setView(v){ state.view = v; render(); }
+  function setView(v){ state.view = v; if(v==='map') state.mapAnim = true; render(); }
   function setMapTheme(t){ state.mapTheme = t; render(); }
   function setMapPalette(p){ state.mapPalette = p; render(); }
   function setDotColor(d){ state.dotColor = d; render(); }
@@ -259,21 +262,51 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     render();
   }
   function clearCombo(){ state.comboSel = []; state.comboOpen = false; render(); }
+  // keep the viewBox within the current content bounds: never zoom out past the
+  // full fit, never pan into empty ocean — so circles at the content edge stay whole
+  // and never appear to float outside the pane.
+  function clampVB(vb){
+    var b = state.mapBounds; if(!b) return vb;
+    var w = Math.min(vb.w, b.w), h = Math.min(vb.h, b.h);
+    var x = Math.max(b.x, Math.min(vb.x, b.x + b.w - w));
+    var y = Math.max(b.y, Math.min(vb.y, b.y + b.h - h));
+    return { x:x, y:y, w:w, h:h };
+  }
+  // grow a candidate viewBox (keeping its aspect) so any circle whose centre falls
+  // inside it is shown WHOLE — a zoom never slices a circle at the pane edge.
+  function snapWholeCircles(vb){
+    var pool = state.mapPool; if(!pool || !pool.length) return vb;
+    var x0=vb.x, y0=vb.y, x1=vb.x+vb.w, y1=vb.y+vb.h;
+    var nx0=x0, ny0=y0, nx1=x1, ny1=y1, any=false;
+    pool.forEach(function(m){
+      if(m.x>=x0 && m.x<=x1 && m.y>=y0 && m.y<=y1){
+        any=true;
+        var pad = m.R + 2;
+        if(m.x-pad<nx0) nx0=m.x-pad; if(m.x+pad>nx1) nx1=m.x+pad;
+        if(m.y-pad<ny0) ny0=m.y-pad; if(m.y+pad>ny1) ny1=m.y+pad;
+      }
+    });
+    if(!any) return vb;
+    var asp = vb.w/vb.h, w=nx1-nx0, h=ny1-ny0;
+    if(w/h > asp){ var nh=w/asp, cy=(ny0+ny1)/2; ny0=cy-nh/2; ny1=cy+nh/2; }
+    else { var nw=h*asp, cx=(nx0+nx1)/2; nx0=cx-nw/2; nx1=cx+nw/2; }
+    return { x:nx0, y:ny0, w:nx1-nx0, h:ny1-ny0 };
+  }
   function zoomMap(k){
     var vb = state.mapVB;
     state.mapFit = false;                    // manual zoom takes over from auto-fit
     var cx = vb.x + vb.w/2, cy = vb.y + vb.h/2;
     var nw = Math.max(120, Math.min(2200, vb.w*k));
     var nh = nw*(vb.h/vb.w);
-    state.mapVB = { x:cx - nw/2, y:cy - nh/2, w:nw, h:nh };
+    state.mapVB = clampVB(snapWholeCircles({ x:cx - nw/2, y:cy - nh/2, w:nw, h:nh }));
     render();
   }
-  function resetMapView(){ state.mapFit = true; state.dotScale = 1; render(); }
+  function resetMapView(){ state.mapFit = true; state.dotScale = 1; state.mapAnim = true; render(); }
   // restore map auto-fit, circle size and station-name font size to defaults
-  function resetMapDefaults(){ state.mapFit = true; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; render(); }
+  function resetMapDefaults(){ state.mapFit = true; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; state.mapAnim = true; render(); }
   function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
-  function setFilter(k, v){ state.filters[k] = v; render(); }
-  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
+  function setFilter(k, v){ state.filters[k] = v; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
+  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
   function toggleLog(){ state.logOpen = !state.logOpen; render(); }
   function toggleHidden(){ state.hiddenOpen = !state.hiddenOpen; render(); }
@@ -1186,35 +1219,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // ---- map ----
   var MW = 1000, MH = 500;
   function mproj(lat, lon){ return { x:(lon+180)/360*MW, y:(90-lat)/180*MH }; }
-  // Collapse empty longitude bands: build a monotonic piecewise map old-x → new-x
-  // that keeps the occupied (station) bands 1:1 but squeezes the empty gaps (oceans /
-  // unused continents) to a small fixed width, so all dots pack into the pane.
-  function buildXRemap(xs){
-    if(!xs || !xs.length) return null;
-    xs = xs.slice().sort(function(a,b){ return a-b; });
-    var PAD = 30, GAP = 46;                 // keep-around padding / compressed gap width
-    var iv = [];
-    xs.forEach(function(x){ var lo=Math.max(0,x-PAD), hi=Math.min(MW,x+PAD);
-      if(iv.length && lo<=iv[iv.length-1].hi) iv[iv.length-1].hi=Math.max(iv[iv.length-1].hi,hi);
-      else iv.push({lo:lo, hi:hi}); });
-    var oldB=[0], newB=[0], curNew=0;
-    function push(oldX,newX){ oldB.push(oldX); newB.push(newX); }
-    function gap(a,b){ var w=b-a; if(w>0.5){ curNew+=Math.min(GAP,w); push(b,curNew); } }
-    function keep(a,b){ var w=b-a; if(w>0.5){ curNew+=w; push(b,curNew); } }
-    var prev=0;
-    iv.forEach(function(g){ gap(prev,g.lo); keep(g.lo,g.hi); prev=g.hi; });
-    gap(prev, MW);
-    function f(x){
-      if(x<=oldB[0]) return newB[0];
-      for(var i=1;i<oldB.length;i++){ if(x<=oldB[i]){ var d=oldB[i]-oldB[i-1]||1; return newB[i-1]+(x-oldB[i-1])/d*(newB[i]-newB[i-1]); } }
-      return newB[newB.length-1];
-    }
-    return { f:f, total:curNew };
-  }
-  // remap every "x,y" coordinate pair in an SVG path's data string
-  function remapPathX(d, remap){
-    return d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, function(_, x, y){ return remap.f(+x).toFixed(1)+','+y; });
-  }
   // continent -> our-region membership for choropleth (based on station.region groups)
   var CONT_LABEL = {
     'North America':'美洲','South America':'南美','Europe':'歐洲','Africa':'非洲','Asia':'亞洲','Oceania':'大洋洲'
@@ -1323,33 +1327,35 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var names = state.showNames;
     var twoTone = state.dotColor==='cuss';
     var cussFrac = names ? 0.70 : 0.56;   // CUSS (top) always the larger share; more room for the label when names show
-    // project stations, then collapse the empty longitude bands so all dots pack in
-    var geoPool = visible.filter(function(s){ return GEO[s.code]||(s.lat!=null); }).map(function(s){
+    // true equirectangular continents (no distortion)
+    var land = MAPCONT.map(function(c){
+      return '<path d="'+c.p+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
+    }).join('');
+    // build dot list, then spread apart so nothing overlaps (kept near true geo)
+    var pool = visible.filter(function(s){ return GEO[s.code]||(s.lat!=null); }).map(function(s){
       var g = GEO[s.code] || { lat:+s.lat, lon:+s.lon };
       var p = mproj(g.lat, g.lon);
-      return { s:s, px:p.x, py:p.y, R:baseDotRadius(s)*sc };
+      return { s:s, tx:p.x, ty:p.y, x:p.x, y:p.y, R:baseDotRadius(s)*sc };
     });
-    var remap = buildXRemap(geoPool.map(function(d){ return d.px; }));
-    var land = MAPCONT.map(function(c){
-      var d = remap ? remapPathX(c.p, remap) : c.p;
-      return '<path d="'+d+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
-    }).join('');
-    // build dot list (with collapsed x), then spread apart so nothing overlaps
-    var pool = geoPool.map(function(d){ var nx = remap ? remap.f(d.px) : d.px; return { s:d.s, tx:nx, ty:d.py, x:nx, y:d.py, R:d.R }; });
     spreadDots(pool);
     // draw smaller (lower pax) dots first, big hubs on top
     pool.sort(function(a,b){ return (a.s.pax||0)-(b.s.pax||0); });
-    // auto-fit the view to frame every dot (incl. radius) within the pane
-    if(state.mapFit){
+    // content bounds (uniform, no distortion): tight bbox of every dot + radius,
+    // padded for station-name labels. Used for auto-fit AND to clamp manual zoom/pan
+    // so no circle is ever sliced by — or floats outside — the pane.
+    if(pool.length){
       var mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
       pool.forEach(function(m){ mnx=Math.min(mnx,m.x-m.R); mxx=Math.max(mxx,m.x+m.R); mny=Math.min(mny,m.y-m.R); mxy=Math.max(mxy,m.y+m.R); });
-      if(!isFinite(mnx)){ mnx=0; mxx=(remap?remap.total:MW); mny=90; mxy=340; }
-      var mgx=20, mgy=18;
-      state.mapVB = { x:mnx-mgx, y:mny-mgy, w:(mxx-mnx)+2*mgx, h:(mxy-mny)+2*mgy };
+      // extra room for station-name labels (they sit above/around the dots)
+      var mgx = names ? 40 : 22, mgy = names ? 34 : 20;
+      state.mapBounds = { x:mnx-mgx, y:mny-mgy, w:(mxx-mnx)+2*mgx, h:(mxy-mny)+2*mgy };
+      if(state.mapFit) state.mapVB = state.mapBounds;
     }
+    // remember dot centres/radii so zoom can snap the viewBox to whole circles
+    state.mapPool = pool.map(function(m){ return { x:m.x, y:m.y, R:m.R }; });
     // label font in world units scales with the current view so on-screen size stays ~constant
     var vbNow = state.mapVB;
-    var labelFS = Math.max(2.6, Math.min(18, vbNow.w * 0.0135)) * (state.mapNameScale||1);
+    var labelFS = Math.max(2.6, Math.min(18, vbNow.w * 0.011)) * (state.mapNameScale||1);
     var defs = '', dots = '', labelItems = [];
     pool.forEach(function(m){
       var s = m.s;
@@ -1395,7 +1401,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       });
     }
     var vb = state.mapVB;
-    return '<svg id="worldmap" viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:none;cursor:grab" xmlns="http://www.w3.org/2000/svg">'
+    // one-shot fold/expand animation when the view (re)fits; consumed so drag/zoom re-renders don't replay it
+    var animClass = state.mapAnim ? ' class="map-unfold"' : '';
+    state.mapAnim = false;
+    return '<svg id="worldmap"'+animClass+' viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:none;cursor:grab" xmlns="http://www.w3.org/2000/svg">'
       + '<defs>'+defs+'</defs>' + land + leaders + dots + labels + '</svg>';
   }
 
@@ -2073,7 +2082,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var dx = e.clientX-mapDrag.sx, dy = e.clientY-mapDrag.sy;
     mapDrag.moved = Math.max(mapDrag.moved, Math.abs(dx)+Math.abs(dy));
     var vb = mapDrag.vb, rect = mapDrag.rect;
-    state.mapVB = { x: vb.x - dx/rect.width*vb.w, y: vb.y - dy/rect.height*vb.h, w: vb.w, h: vb.h };
+    state.mapVB = clampVB({ x: vb.x - dx/rect.width*vb.w, y: vb.y - dy/rect.height*vb.h, w: vb.w, h: vb.h });
     applyMapVB();
   });
   document.addEventListener('pointerup', function(){
@@ -2096,7 +2105,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var k = e.deltaY < 0 ? 1/1.15 : 1.15;
     var nw = Math.max(120, Math.min(2200, vb.w*k));
     var nh = nw * (vb.h/vb.w);
-    state.mapVB = { x: px - fx*nw, y: py - fy*nh, w: nw, h: nh };
+    state.mapVB = clampVB(snapWholeCircles({ x: px - fx*nw, y: py - fy*nh, w: nw, h: nh }));
     // recompute label layout for the new zoom when names are shown (discrete wheel
     // steps, so a full re-render is fine); otherwise just move the viewBox.
     if(state.showNames){ if(!wheelRAF) wheelRAF = requestAnimationFrame(function(){ wheelRAF=0; render(); }); }
