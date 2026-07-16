@@ -1874,17 +1874,24 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var transitions=buildSafePlateTransitions(nodes,offsets,previous,animate,previousZoom,state.mapZoom||1),hasRoutedTransition=animate;
     pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1;m.dx=o.dx;m.dy=o.dy;m.plateScale=s;m.plateCx=o.cx;m.plateCy=o.cy;m.fx=o.cx+o.dx+(m.x-o.cx)*s;m.fy=o.cy+o.dy+(m.y-o.cy)*s;});
 
+    // The settled frame is computed up front so every stroke width can scale
+    // with it (sk): a tightly framed lone plate keeps hairline coastlines and
+    // dot rims — the same apparent weight as the full world view — instead of
+    // fat white outlines.
+    var finalFrame=plateContentFrame(pool,nodes,offsets,names);
+    var sk=Math.min(1,finalFrame.w/BASE_VB.w);
+
     // Remove active region pieces from the background, then draw their exact
     // original paths as one uniformly transformed group. Background land fades.
     var occupied={},baseLand='',plateLand='';
     nodes.forEach(function(n){n.pieces.forEach(function(piece){occupied[piece.id]=true;});});
     pieces.forEach(function(piece){
-      if(!occupied[piece.id]) baseLand+='<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
+      if(!occupied[piece.id]) baseLand+='<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(0.6*sk).toFixed(3)+'"/>';
     });
     var lifted=(state.mapZoom||1)>1.001;
     nodes.forEach(function(n){
       var motion=plateMotion(n.id,offsets[n.id],previous,animate,transitions[n.id]);
-      var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"/>';}).join('');
+      var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+((lifted?1.05:0.6)*sk).toFixed(3)+'"/>';}).join('');
       plateLand+=motion.open+'<g data-plate-group="'+n.id+'" data-plate-label="'+esc(n.label)+'"'+(lifted&&land?' filter="url(#plateLift)"':'')+'>'+land+'</g>'+motion.close;
     });
     // From the very first zoom step (×1.1) the unmoved background plates are
@@ -1903,7 +1910,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     // Frame every full moved plate and every complete station circle. During a
     // transition the old and new frames are both retained, so no intermediate
     // animation frame can slice a moving station at the pane edge.
-    var finalFrame=plateContentFrame(pool,nodes,offsets,names);
     var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
     var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
     var waypointFrames=[];
@@ -1920,7 +1926,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0,scale:1},box=transformedPlateBox(n,n.cx+o.dx,n.cy+o.dy,o.scale||1);return{id:n.id,macroId:n.macroId||plateMacroId(n.id),label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,scale:o.scale||1,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,box:box,codes:n.items.map(function(m){return m.s.code;})};})};
 
     var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
-    var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#10251B" flood-opacity=".34"/></filter>'+desatFilter;
+    var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="'+(2.2*sk).toFixed(3)+'" stdDeviation="'+(2.2*sk).toFixed(3)+'" flood-color="#10251B" flood-opacity=".34"/></filter>'+desatFilter;
     var dotBy={},leaderBy={},labelBy={},labelItems=[];
     function addPart(bucket,id,html){bucket[id]=(bucket[id]||'')+html;}
     pool.sort(function(a,b){return(a.s.pax||0)-(b.s.pax||0);});
@@ -1929,10 +1935,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       if(twoTone){
         var cid='dc'+s.id,xL=(cx-R).toFixed(1),yT=(cy-R).toFixed(1),W=(2*R).toFixed(1),FULL=(2*R).toFixed(1),topH=(2*R*cussFrac).toFixed(1);
         defs+='<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
-        body='<g clip-path="url(#'+cid+')"><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/></g><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="0.9"/>';
-      }else body='<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="0.9"/>';
-      var selRing=s.id===state.selectedId?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>':'';
-      var kpiRing=(s.kpi&&state.showKpiRing)?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>':'';
+        body='<g clip-path="url(#'+cid+')"><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/></g><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="'+(0.9*sk).toFixed(3)+'"/>';
+      }else body='<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="'+(0.9*sk).toFixed(3)+'"/>';
+      var selRing=s.id===state.selectedId?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5*sk).toFixed(2)+'" fill="none" stroke="#00853C" stroke-width="'+(1.6*sk).toFixed(3)+'"/>':'';
+      var kpiRing=(s.kpi&&state.showKpiRing)?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2*sk).toFixed(2)+'" fill="none" stroke="#fff" stroke-width="'+(1.3*sk).toFixed(3)+'"/>':'';
       addPart(dotBy,m.plateId,'<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>');
       if(names){
         var visualR=R*m.plateScale,hy=twoTone?(m.fy-visualR+visualR*cussFrac):m.fy;
@@ -1944,7 +1950,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       labelItems.forEach(function(m){
         var s=m.scale||1,invX=function(x){return m.pcx+(x-m.pcx-m.dx)/s;},invY=function(y){return m.pcy+(y-m.pcy-m.dy)/s;};
         var cx=invX(m.cx),cy=invY(m.cy),lx=invX(m.lx),ly=invY(m.ly),localFS=m.fs/s,moved=Math.abs(m.lx-m.hx)+Math.abs(m.ly-m.hy)>1.6;
-        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="'+(.55/s).toFixed(2)+'" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="'+(.9/s).toFixed(2)+'" fill="'+leadStroke+'"/>');
+        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="'+(.55*sk/s).toFixed(3)+'" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="'+(.9*sk/s).toFixed(3)+'" fill="'+leadStroke+'"/>');
         addPart(labelBy,m.plateId,'<text x="'+lx.toFixed(1)+'" y="'+(ly+localFS*.34).toFixed(1)+'" text-anchor="middle" font-size="'+localFS.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(localFS*.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>');
       });
     }
@@ -2079,13 +2085,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       return '<div style="position:absolute;left:'+c[0]+'%;top:'+c[1]+'%;transform:translate(-50%,-50%);opacity:.14;pointer-events:none">'+quadIcon(q.icon,q.color,122,1.55)+'</div>';
     }).join('');
 
-    return '<section id="matrix-export" style="flex:none;width:520px;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
+    return '<section id="matrix-export" style="flex:none;width:520px;align-self:flex-start;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column">'
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
       +   '<div><div style="font-size:16px;font-weight:900;color:#141819">場站策略定位矩陣</div>'
       +   '<div style="font-size:11px;color:#6E787B;margin-top:2px">依自動化完備度（CUSS／SBD／SBG）與旅客量／航班量分類；圓點上半＝CUSS／下半＝SBD、白圈＝KPI　·　顯示 '+visible.length+' 站</div></div>'
       +   '<button data-action="exportPNG" data-target="matrix-export" data-file="場站定位矩陣.png" data-noshot="1" style="flex:none;border:1.5px solid #C7CDCF;background:#fff;color:#141819;border-radius:16px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer">匯出矩陣圖片</button>'
       + '</div>'
-      + '<div style="display:flex;gap:8px;margin-top:14px;flex:1;min-height:430px">'
+      + '<div style="display:flex;gap:8px;margin-top:14px;flex:none;height:430px">'
       +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:20px">'
       +     '<span style="font-size:11px;color:#8A938F">高</span>'
       +     '<span style="writing-mode:vertical-rl;font-size:12px;font-weight:700;color:#515A5D;margin:8px 0;letter-spacing:2px">自動化完備度</span>'
