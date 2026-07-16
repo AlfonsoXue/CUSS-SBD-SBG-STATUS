@@ -1,0 +1,81 @@
+[33m49e890d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32magent/robust-map-viewbox-bounds[m[33m, [m[1;31morigin/agent/robust-map-viewbox-bounds[m[33m)[m Return small station dots to geographic positions
+[33m79996f1[m Pack station circles and smooth collision-free plate paths
+[33m3b72f8e[m Clarify compact four-block collision behavior
+[33m8679b44[m Enlarge plates while gathering and close the center gap
+[33mdd2e46e[m Stage plate zoom into centered four-arm layout
+[33m03bebb3[m Raise moving plate scale to 400 percent
+[33md820539[m Merge regional plates and route safe map motion
+[33m4b85260[m Scale and pack active map plates
+[33m85fbc1b[m Drive plate movement from station regions
+[33m06badf4[m Replace geo folding with white-line plate zoom
+[33m6b98240[m Keep every station inside folded map frame
+[33m02fe0db[m Fix map view bounds and filter refit
+[33mc117fdd[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m 地圖改用不失真均勻裁切自動聚焦，加入摺疊展開動畫，縮放貼齊完整圓圈避免跑出窗格
+[33m6761290[m 地圖收合空白經度帶並自動聚焦，確保所有圓圈完整顯示於窗格內
+[33m14b7ccd[m 修正匯出資料下拉選單顯示異常
+[33mda5067b[m 標題列功能鈕精簡單列，匯出JSON/CSV合併為匯出資料下拉
+[33mcfd1d7f[m 時程儀表板圖例新增「上＝CUSS／下＝SBD」
+[33m6d55cd3[m 新增 DEL（德里）座標，修正匯入新站無法顯示於地圖
+[33mfa21022[m 新增隱藏場站功能與資料最後更新時間頁尾
+[33m08800a0[m 匯入支援複選多檔並修正原始 Excel 解析
+[33mf9bb3d1[m 地圖標題改為全球場站自動化設備概況，圖例大小移至圖例列
+[33m6760f62[m 圖例字級改名圖例大小，與圖例圖形開關移至圖例列
+[33m2b6a9ff[m README: 更新地圖控制群位置說明（面板標題右側）
+[33mf2f842f[m 地圖控制群移至全球場站分布圖面板標題（匯出鈕左側）
+[33me65402b[m Update README.md
+[33m50b805d[m 經理人 KPI 關閉時同步隱藏 KPI 圖例
+[33m3538efa[m 時程儀表板顯示設定新增經理人KPI開關與回復預設
+[33m003f3bb[m 改用完整官方 EVA AIR 標誌原圖（base64 內嵌）
+[33m60d8e79[m 改用官方 EVA AIR 尾翼原圖（base64 內嵌 PNG）
+[33m2f9e25f[m EVA AIR 標誌字標改為直立（配合官方雙行版式）
+[33mab37fd2[m 再精修 EVA AIR 標誌：前傾字標與完整地球線框
+[33m613fc89[m 精修 EVA AIR 標誌 SVG（傾斜地球經緯線與羅盤星）
+[33m14a6c2a[m 標題列左上角新增 EVA AIR 企業標誌
+[33mfffb562[m 重設基準改為開啟檔案時的狀態，而非原始資料庫
+[33mfd6f708[m 清除更新紀錄需輸入人事代號並永久稽核
+[33m2c94305[m 新增另存 HTML 快照與更新紀錄日誌
+[33m75aa8bd[m 匯入資料按鈕提示文字補充 OEM 兩檔說明
+[33mfeeba1a[m 新增匯入資料功能（JSON／CSV 取代、原始 Excel 合併）
+[33me2417a5[m 個別場站清單點空白處自動收合
+[33m453cc7a[m 圖例圖形開關連動覆蓋率卡內圖例
+[33m4db47ef[m 篩選列固定單列，避免啟用篩選時控制群換行變高
+[33m385210f[m 提高匯出圖片解析度至約 4× 裝置像素
+[33m08ca18d[m 地圖場站名稱/KPI白框改用開關樣式並新增圖例大小調整
+[33m7f5a85d[m 清除篩選固定左側、地圖控制新增恢復預設按鈕
+[33m4b0f8d4[m 地圖檢視新增場站名稱字級調整，並將縮放控制移至篩選列
+[33me3f45ff[m 地圖分布圖標題簡化：移除說明文字，站數移至標題後方
+[33m9ee19ee[m 字級調整同步縮放系統商與圖例色塊，圖例開關改為控制圖形
+[33mc7a5448[m 時程儀表板新增顯示設定：字級調整與圖例僅色塊開關
+[33mccba85c[m 覆蓋率卡列出對應場站並支援游標高亮
+[33mb6b4b42[m 僅CUSS+SBG 改採不包含計算並冠以「僅」
+[33md4ea93c[m 個別篩選 CUSS／SBD／SBG 時維持原多狀態堆疊長條
+[33m601fe77[m 覆蓋率卡標題隨設備搭配篩選變更
+[33mf78505b[m Combo dropdown filters the coverage cards (revert timeline filter bar)
+[33maf205e6[m Filter the timeline dashboard (coverage/combo/chips)
+[33m3b5c93c[m Update CUSS coverage-card description
+[33m62bd244[m Replace stage numbers with icons (CUSS/SBD/SBG)
+[33m9179bc7[m Rename "三階段" label to "CUSS｜SBD｜SBG"
+[33me527f92[m Combination stats: inclusive counting, drop the "僅" label
+[33m6ec5a39[m Add CUSS/SBD/SBG combination stats with multi-select
+[33m7f5b1ed[m Update region-view schedule label text
+[33maf4276e[m Weight CUSS/SBD higher than SBG in completeness score
+[33m1839620[m Explain chip ordering in each view's subtitle
+[33mf9c9f23[m Remove the region-view build-schedule axis
+[33md8ac9da[m Region view: add a build-schedule axis above the chips
+[33m77baaa1[m Fix hairline seam between the two-tone map dot halves
+[33m93c869f[m Region view: sort chips by schedule, then completeness tier
+[33mbec79a6[m Tiered timeline chip sort by completeness + baggage-tag
+[33me2da328[m Sort timeline chips by automation completeness (left to right)
+[33m90f392c[m Show quadrant icons as large watermarks in the matrix
+[33m4ff9d5c[m Update baggage-tag chip icon to the uploaded tag design
+[33mfeaf0d7[m Prevent circle overlap on matrix and map
+[33md9cddd3[m Matrix: two-tone dots, upright axis, dot-aware icons, rename quadrant
+[33m963bef4[m Map label leader lines; CUSS baggage-tag toggle
+[33mc8c4e8c[m Map: station-name toggle, two-tone CUSS/SBD dots; matrix icon-only cells
+[33m4ed8b4d[m Add KPI-ring toggle and map pan/zoom/dot-size controls
+[33m1b26b93[m Matrix rescales to filtered stations; add per-station filter
+[33m75ff536[m Add map/matrix filters and separate image export
+[33mf101c63[m Add interactive CUSS/SBD/SBG status dashboard
+[33m4263bb2[m Add interactive CUSS/SBD/SBG status dashboard
+[33m0b4c81a[m Add initial design export instructions to README
+[33mce9c2d5[m Create generator.html

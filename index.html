@@ -1251,40 +1251,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     return best;
   }
-  function transformedPieceGeometry(piece,cx,cy,fx,fy,scale){
-    var s=scale||1,x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-    var poly=piece.poly.map(function(p){
-      var q={x:fx+(p.x-cx)*s,y:fy+(p.y-cy)*s};
-      x0=Math.min(x0,q.x);x1=Math.max(x1,q.x);y0=Math.min(y0,q.y);y1=Math.max(y1,q.y);return q;
-    });
-    return{poly:poly,box:{x0:x0,y0:y0,x1:x1,y1:y1}};
-  }
-  function orient2d(a,b,c){return(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);}
-  function segmentsProperlyCross(a,b,c,d){
-    var e=1e-7,o1=orient2d(a,b,c),o2=orient2d(a,b,d),o3=orient2d(c,d,a),o4=orient2d(c,d,b);
-    return((o1>e&&o2<-e)||(o1<-e&&o2>e))&&((o3>e&&o4<-e)||(o3<-e&&o4>e));
-  }
-  // Boundary contact is permitted; positive-area overlap is not.
-  function polygonsOverlapStrict(a,b){
-    var e=.015,A=a.box,B=b.box;
-    if(Math.min(A.x1,B.x1)-Math.max(A.x0,B.x0)<=e||Math.min(A.y1,B.y1)-Math.max(A.y0,B.y0)<=e) return false;
-    var ap=a.poly,bp=b.poly;
-    for(var i=0,ip=ap.length-1;i<ap.length;ip=i++)for(var j=0,jp=bp.length-1;j<bp.length;jp=j++)
-      if(segmentsProperlyCross(ap[ip],ap[i],bp[jp],bp[j])) return true;
-    for(i=0;i<ap.length;i++)if(pointInPolygon(ap[i],bp)&&distanceToPolygon(ap[i],bp)>e) return true;
-    for(i=0;i<bp.length;i++)if(pointInPolygon(bp[i],ap)&&distanceToPolygon(bp[i],ap)>e) return true;
-    return false;
-  }
-  function visualMacrosOverlap(a,b,gap){
-    var g=gap||0,i,j,ca,cb;
-    for(i=0;i<a.circles.length;i++)for(j=0;j<b.circles.length;j++){
-      ca=a.circles[i];cb=b.circles[j];
-      if(Math.hypot(ca.x-cb.x,ca.y-cb.y)<ca.r+cb.r+g) return true;
-    }
-    for(i=0;i<a.polygons.length;i++)for(j=0;j<b.polygons.length;j++)
-      if(polygonsOverlapStrict(a.polygons[i],b.polygons[j])) return true;
-    return false;
-  }
   function getMapPieces(){
     if(MAP_PIECES) return MAP_PIECES;
     MAP_PIECES=[];
@@ -1371,7 +1337,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(id==='oceania') return 'oceania';
     return 'asia';
   }
-  var MAP_DOT_GAP=.65;
   // Zoom is staged as one continuous four-block composition. First the four
   // geographic blocks gather into a compact cross around the map centre; only
   // after that cross is established do they enlarge and extend outward. Every
@@ -1380,28 +1345,23 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function layoutStationPlates(nodes,zoom){
     var raw=Math.max(0,Math.min(1,((zoom||1)-1)/3));
     var smooth=function(v){v=Math.max(0,Math.min(1,v));return v*v*(3-2*v);};
-    var gatherRaw=Math.max(0,Math.min(1,raw/(1/3))),gather=smooth(gatherRaw),expand=smooth((raw-1/3)/(2/3)),out={};
-    // Vertical lanes settle first, then horizontal gathering follows. The two
-    // zero-slope curves form a smooth, single-direction route around neighbours.
-    var laneLead=smooth(gatherRaw/.48),laneFollow=smooth((gatherRaw-.40)/.60);
+    var gather=smooth(raw/(1/3)),expand=smooth((raw-1/3)/(2/3)),out={};
     if(!nodes.length) return out;
-    var mapCx=BASE_VB.x+BASE_VB.w*.5,mapCy=BASE_VB.y+BASE_VB.h*.5,macros={},maxStationR=0;
+    var mapCx=BASE_VB.x+BASE_VB.w*.5,mapCy=BASE_VB.y+BASE_VB.h*.5,macros={};
     var directions={americas:{x:-1,y:0},europe:{x:0,y:-1},asia:{x:1,y:0},oceania:{x:0,y:1}};
     nodes.forEach(function(n){
       var id=plateMacroId(n.id),m=macros[id]||(macros[id]={id:id,nodes:[],items:[],pieces:[],dir:directions[id],x0:Infinity,y0:Infinity,x1:-Infinity,y1:-Infinity});
       n.macroId=id;m.nodes.push(n);m.items=m.items.concat(n.items);m.pieces=m.pieces.concat(n.pieces||[]);
       (n.pieces||[]).forEach(function(piece){var b=piece.box;m.x0=Math.min(m.x0,b.x0);m.y0=Math.min(m.y0,b.y0);m.x1=Math.max(m.x1,b.x1);m.y1=Math.max(m.y1,b.y1);});
       n.items.forEach(function(q){var r=q.R||0;m.x0=Math.min(m.x0,q.x-r);m.y0=Math.min(m.y0,q.y-r);m.x1=Math.max(m.x1,q.x+r);m.y1=Math.max(m.y1,q.y+r);});
-      n.items.forEach(function(q){maxStationR=Math.max(maxStationR,q.R||0);});
     });
-    var laneRadiusBoost=Math.max(0,maxStationR-11)*4;
     var near={
-      americas:{x:mapCx-BASE_VB.w*.20,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.08-laneRadiusBoost},
-      asia:{x:mapCx+BASE_VB.w*.20,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.32+laneRadiusBoost}
+      americas:{x:mapCx-BASE_VB.w*.10,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.14},
+      asia:{x:mapCx+BASE_VB.w*.10,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.14}
     };
     var far={
-      americas:{x:mapCx-BASE_VB.w*.22,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.08-laneRadiusBoost},
-      asia:{x:mapCx+BASE_VB.w*.22,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.32+laneRadiusBoost}
+      americas:{x:mapCx-BASE_VB.w*.18,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.20},
+      asia:{x:mapCx+BASE_VB.w*.18,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.20}
     };
     var macroList=Object.keys(macros).map(function(id){
       var m=macros[id];
@@ -1410,9 +1370,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       // gather; the remaining sixty percent accompanies the outward extension.
       // Both phases meet with zero slope, so scale and translation stay smooth.
       m.cx=(m.x0+m.x1)/2;m.cy=(m.y0+m.y1)/2;m.scale=1+.32*(.4*gather+.6*expand);
-      m.fx=m.cx+(near[id].x-m.cx)*laneFollow+(far[id].x-near[id].x)*expand;
-      m.fy=m.cy+(near[id].y-m.cy)*laneLead+(far[id].y-near[id].y)*expand;
-      m.targetFx=m.fx;m.targetFy=m.fy;
+      m.fx=m.cx+(near[id].x-m.cx)*gather+(far[id].x-near[id].x)*expand;
+      m.fy=m.cy+(near[id].y-m.cy)*gather+(far[id].y-near[id].y)*expand;
       return m;
     });
     function pointOn(m,q){return{x:m.fx+(q.x-m.cx)*m.scale,y:m.fy+(q.y-m.cy)*m.scale,r:q.R*m.scale};}
@@ -1422,35 +1381,26 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       m.items.forEach(function(q){var p=pointOn(m,q),r=p.r+2;x0=Math.min(x0,p.x-r);x1=Math.max(x1,p.x+r);y0=Math.min(y0,p.y-r);y1=Math.max(y1,p.y+r);});
       return{x0:x0,y0:y0,x1:x1,y1:y1,w:x1-x0,h:y1-y0};
     }
-    function macroVisual(m){
-      return{
-        circles:m.items.map(function(q){var p=pointOn(m,q);return{x:p.x,y:p.y,r:p.r};}),
-        polygons:m.pieces.map(function(piece){return transformedPieceGeometry(piece,m.cx,m.cy,m.fx,m.fy,m.scale);})
-      };
+    function pushOut(a,b,amount){
+      var dx=a.dir.x-b.dir.x,dy=a.dir.y-b.dir.y,den=Math.sqrt(dx*dx+dy*dy)||1,p=amount/den+.02;
+      a.fx+=a.dir.x*p;a.fy+=a.dir.y*p;b.fx+=b.dir.x*p;b.fy+=b.dir.y*p;
     }
-    function pairConflicts(a,b){return visualMacrosOverlap(macroVisual(a),macroVisual(b),MAP_DOT_GAP);}
-    function setPairShift(a,b,ax,ay,bx,by,d){
-      a.fx=ax+a.dir.x*d;a.fy=ay+a.dir.y*d;b.fx=bx+b.dir.x*d;b.fy=by+b.dir.y*d;
-    }
-    function separatePair(a,b){
-      if(!pairConflicts(a,b)) return false;
-      var ax=a.fx,ay=a.fy,bx=b.fx,by=b.fy,lo=0,hi=.25;
-      while(hi<2048){setPairShift(a,b,ax,ay,bx,by,hi);if(!pairConflicts(a,b)) break;hi*=2;}
-      for(var k=0;k<22;k++){var mid=(lo+hi)/2;setPairShift(a,b,ax,ay,bx,by,mid);if(pairConflicts(a,b)) lo=mid;else hi=mid;}
-      setPairShift(a,b,ax,ay,bx,by,hi+.025);return true;
-    }
-    function resolveMacroConflicts(){
-      if(raw<=0) return;
-      for(var it=0;it<48;it++){
+    // Preserve the four blocks as rigid macro groups. When enlarged station
+    // circles meet, both blocks move only farther along their assigned arm.
+    if(raw>0){
+      for(var it=0;it<320;it++){
         var moved=false;
-        for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++)if(separatePair(macroList[i],macroList[j])) moved=true;
+        for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++){
+          var a=macroList[i],b=macroList[j],worst=0;
+          for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
+            var pa=pointOn(a,a.items[ai]),pb=pointOn(b,b.items[bi]),dx=pa.x-pb.x,dy=pa.y-pb.y,d=Math.sqrt(dx*dx+dy*dy)||.01,min=pa.r+pb.r+4;
+            if(d<min) worst=Math.max(worst,min-d);
+          }
+          if(worst>0){pushOut(a,b,worst*.55);moved=true;}
+        }
         if(!moved) break;
       }
     }
-    // All visible peer geometry participates in collision resolution: station
-    // circles against circles, and exact white-line polygons against polygons.
-    // A correction moves the complete macro only farther along its assigned arm.
-    resolveMacroConflicts();
     // At maximum zoom, match the content envelope to the ViewBox aspect ratio
     // without reopening the centre: horizontal shortage extends the left/right
     // arms; vertical shortage is absorbed by the tall America/Asia silhouettes.
@@ -1468,32 +1418,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         macros.asia.fy+=Math.max(0,(y1+needH*.5)-sb.y1);
       }
     }
-    // Aspect filling can move America or Asia vertically, so enforce the same
-    // exact no-overlap rule once more on the final composed frame.
-    resolveMacroConflicts();
-    function allMacrosSafe(){
-      for(var i=0;i<macroList.length;i++)for(var j=i+1;j<macroList.length;j++)if(pairConflicts(macroList[i],macroList[j])) return false;
-      return true;
-    }
-    function compactOppositePair(a,b){
-      if(!a||!b) return;
-      var sa=(a.fx-a.targetFx)*a.dir.x+(a.fy-a.targetFy)*a.dir.y;
-      var sb=(b.fx-b.targetFx)*b.dir.x+(b.fy-b.targetFy)*b.dir.y,max=Math.max(0,Math.min(sa,sb));
-      if(max<.05) return;
-      var ax=a.fx,ay=a.fy,bx=b.fx,by=b.fy;
-      function set(d){a.fx=ax-a.dir.x*d;a.fy=ay-a.dir.y*d;b.fx=bx-b.dir.x*d;b.fy=by-b.dir.y*d;}
-      set(max);
-      if(allMacrosSafe()) return;
-      var lo=0,hi=max;for(var k=0;k<22;k++){var mid=(lo+hi)/2;set(mid);if(allMacrosSafe()) lo=mid;else hi=mid;}
-      set(Math.max(0,lo-.025));
-    }
-    // After the vertical aspect adjustment, reclaim only collision-generated
-    // excess separation. This packs opposite arms tightly without crossing the
-    // intended target or allowing any pair of white-line polygons to overlap.
-    for(var compactPass=0;compactPass<3;compactPass++){
-      compactOppositePair(macros.americas,macros.asia);
-      compactOppositePair(macros.europe,macros.oceania);
-    }
     nodes.forEach(function(n){
       var m=macros[n.macroId],fx=m.fx+(n.cx-m.cx)*m.scale,fy=m.fy+(n.cy-m.cy)*m.scale;
       out[n.id]={dx:fx-n.cx,dy:fy-n.cy,cx:n.cx,cy:n.cy,fx:fx,fy:fy,scale:m.scale,count:n.items.length,macroId:n.macroId};
@@ -1510,69 +1434,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     for(var i=1;i<kt.length;i++)if(t<=kt[i]){var a=pts[i-1],b=pts[i],u=(t-kt[i-1])/(kt[i]-kt[i-1]);return{dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:b.cx,cy:b.cy};}
     return pts[pts.length-1];
   }
-  function buildSafePlateTransitions(nodes,offsets,previous,animate,fromZoom,toZoom){
+  function buildSafePlateTransitions(nodes,offsets,previous,animate){
     var result={},start={},finish={};
     nodes.forEach(function(n){
       var p=(previous&&previous[n.id])||{dx:0,dy:0,scale:1},o=offsets[n.id]||{dx:0,dy:0,scale:1};
       start[n.id]={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:n.cx,cy:n.cy};finish[n.id]={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:n.cx,cy:n.cy};
     });
-    // A zoom animation follows the same one-way zoom trajectory as the settled
-    // layouts. Reversing the zoom traverses these samples in reverse, so there
-    // is no corrective overshoot or visible spring-back.
-    var zoomRoute=animate&&isFinite(fromZoom)&&isFinite(toZoom)&&Math.abs(toZoom-fromZoom)>.0001;
-    var waypoints=[{time:0,points:start}];
-    function layoutPointsAt(time){
-      var z=fromZoom+(toZoom-fromZoom)*time,o=layoutStationPlates(nodes,z),points={};
-      nodes.forEach(function(n){var q=o[n.id]||{dx:0,dy:0,scale:1};points[n.id]={dx:+q.dx||0,dy:+q.dy||0,scale:+q.scale||1,cx:n.cx,cy:n.cy};});
-      return points;
-    }
-    function pointsAtZoom(z){
-      if(Math.abs(z-fromZoom)<1e-7) return start;if(Math.abs(z-toZoom)<1e-7) return finish;
-      return layoutPointsAt((z-fromZoom)/(toZoom-fromZoom));
-    }
-    function stagedGatherPoints(low,high){
-      var points={},by={};nodes.forEach(function(n){(by[plateMacroId(n.id)]||(by[plateMacroId(n.id)]=[])).push(n);});
-      Object.keys(by).forEach(function(id){
-        var list=by[id],ref=list[0],l=low[ref.id],h=high[ref.id],s=l.scale,fx=ref.cx+l.dx,fy=ref.cy+h.dy;
-        list.forEach(function(n){points[n.id]={dx:fx+(n.cx-ref.cx)*s-n.cx,dy:fy+(n.cy-ref.cy)*s-n.cy,scale:s,cx:n.cx,cy:n.cy};});
-      });return points;
-    }
-    function stagedExpandPoints(low,high){
-      var points={},by={};nodes.forEach(function(n){(by[plateMacroId(n.id)]||(by[plateMacroId(n.id)]=[])).push(n);});
-      Object.keys(by).forEach(function(id){
-        var list=by[id],ref=list[0],l=low[ref.id],h=high[ref.id],s=l.scale,fx=ref.cx+h.dx,fy=ref.cy+h.dy;
-        list.forEach(function(n){points[n.id]={dx:fx+(n.cx-ref.cx)*s-n.cx,dy:fy+(n.cy-ref.cy)*s-n.cy,scale:s,cx:n.cx,cy:n.cy};});
-      });return points;
-    }
-    if(zoomRoute){
-      var lowZoom=Math.min(fromZoom,toZoom),highZoom=Math.max(fromZoom,toZoom),canonical=[];
-      var cursorZoom=lowZoom,cursorPoints=pointsAtZoom(lowZoom);canonical.push({zoom:cursorZoom,points:cursorPoints});
-      if(cursorZoom<2){
-        var gatherEnd=Math.min(2,highZoom),gatherPoints=pointsAtZoom(gatherEnd);
-        canonical.push({zoom:(cursorZoom+gatherEnd)/2,points:stagedGatherPoints(cursorPoints,gatherPoints)});
-        canonical.push({zoom:gatherEnd,points:gatherPoints});cursorZoom=gatherEnd;cursorPoints=gatherPoints;
-      }
-      if(highZoom>cursorZoom){
-        var highPoints=pointsAtZoom(highZoom);
-        canonical.push({zoom:(cursorZoom+highZoom)/2,points:stagedExpandPoints(cursorPoints,highPoints)});
-        canonical.push({zoom:highZoom,points:highPoints});
-      }
-      waypoints=canonical.map(function(w){return{time:(w.zoom-fromZoom)/(toZoom-fromZoom),points:w.points};}).sort(function(a,b){return a.time-b.time;});
-    }
-    else waypoints.push({time:1,points:finish});
+    // Follow the four-arm layout directly; the previous radial "parking" detour
+    // is intentionally removed. Adaptive waypoints are inserted only if the
+    // exact continuous circle test finds an actual collision on that segment.
+    var waypoints=[{time:0,points:start},{time:1,points:finish}];
     function stationAt(n,m,q){return{x:n.cx+q.dx+(m.x-n.cx)*q.scale,y:n.cy+q.dy+(m.y-n.cy)*q.scale,r:m.R*q.scale};}
-    function pointsBetween(left,right,u){
-      var points={};nodes.forEach(function(n){var a=left.points[n.id],b=right.points[n.id];points[n.id]={dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:n.cx,cy:n.cy};});return points;
-    }
-    function visualMacrosAt(points){
-      var by={};nodes.forEach(function(n){
-        var q=points[n.id],id=plateMacroId(n.id),v=by[id]||(by[id]={id:id,circles:[],polygons:[]}),fx=n.cx+q.dx,fy=n.cy+q.dy;
-        n.items.forEach(function(m){v.circles.push(stationAt(n,m,q));});
-        n.pieces.forEach(function(piece){v.polygons.push(transformedPieceGeometry(piece,n.cx,n.cy,fx,fy,q.scale));});
-      });return Object.keys(by).map(function(id){return by[id];});
-    }
-    // Circles are tested continuously; exact plate polygons are sampled densely
-    // along each short routed segment.
+    // Exact continuous test for two linearly moving, linearly scaling circles.
     function unsafeSegment(left,right){
       var worst=null;
       for(var i=0;i<nodes.length;i++)for(var j=i+1;j<nodes.length;j++){
@@ -1585,12 +1458,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           if(clear<-.01&&(!worst||clear<worst.clear)) worst={clear:clear,u:u};
         }
       }
-      for(var sample=0;sample<=6;sample++){
-        var su=sample/6,visuals=visualMacrosAt(pointsBetween(left,right,su));
-        for(i=0;i<visuals.length;i++)for(j=i+1;j<visuals.length;j++){
-          if(visualMacrosOverlap(visuals[i],visuals[j],MAP_DOT_GAP)) return{clear:-1e12,u:su};
-        }
-      }
       return worst;
     }
     function solveWaypoint(guess){
@@ -1601,11 +1468,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       });
       var macroList=Object.keys(macroBy).map(function(id){return macroBy[id];});
       function shift(m,amount){m.nodes.forEach(function(n){n.fx+=m.dir.x*amount;n.fy+=m.dir.y*amount;});}
-      function workVisual(m){
-        var v={circles:[],polygons:[]};m.nodes.forEach(function(n){
-          n.items.forEach(function(q){v.circles.push({x:n.fx+(q.x-n.cx)*n.scale,y:n.fy+(q.y-n.cy)*n.scale,r:q.R*n.scale});});
-          n.pieces.forEach(function(piece){v.polygons.push(transformedPieceGeometry(piece,n.cx,n.cy,n.fx,n.fy,n.scale));});
-        });return v;
+      function stationBox(m){
+        var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+        m.nodes.forEach(function(n){n.items.forEach(function(q){var r=q.R*n.scale+3,x=n.fx+(q.x-n.cx)*n.scale,y=n.fy+(q.y-n.cy)*n.scale;x0=Math.min(x0,x-r);x1=Math.max(x1,x+r);y0=Math.min(y0,y-r);y1=Math.max(y1,y+r);});});
+        return{x0:x0,y0:y0,x1:x1,y1:y1};
       }
       // Keep every intermediate correction rigid at the four-block level.
       // A collision can only push America left, Europe up, Asia right, or
@@ -1616,26 +1482,25 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           var a=macroList[i],b=macroList[j],worst=0;
           a.nodes.forEach(function(an){b.nodes.forEach(function(bn){an.items.forEach(function(ma){bn.items.forEach(function(mb){
             var ax=an.fx+(ma.x-an.cx)*an.scale,ay=an.fy+(ma.y-an.cy)*an.scale,bx=bn.fx+(mb.x-bn.cx)*bn.scale,by=bn.fy+(mb.y-bn.cy)*bn.scale;
-            var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*an.scale+mb.R*bn.scale+MAP_DOT_GAP;
+            var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*an.scale+mb.R*bn.scale+3;
             if(d<min) worst=Math.max(worst,min-d);
           });});});});
-          if(visualMacrosOverlap(workVisual(a),workVisual(b),MAP_DOT_GAP)) worst=Math.max(worst,.5);
+          var ba=stationBox(a),bb=stationBox(b),ox=Math.min(ba.x1,bb.x1)-Math.max(ba.x0,bb.x0),oy=Math.min(ba.y1,bb.y1)-Math.max(ba.y0,bb.y0);
+          if(ox>0&&oy>0) worst=Math.max(worst,Math.min(ox,oy));
           if(worst>0){var rx=a.dir.x-b.dir.x,ry=a.dir.y-b.dir.y,rate=Math.sqrt(rx*rx+ry*ry)||1,p=worst/rate*.58+.02;shift(a,p);shift(b,p);moved=true;}
         }
         if(!moved) break;
       }
       var solved={};nodes.forEach(function(n){var w=work[n.id];solved[n.id]={dx:w.fx-n.cx,dy:w.fy-n.cy,scale:w.scale,cx:n.cx,cy:n.cy};});return solved;
     }
-    // Refine zoom segments with another true zoom-layout sample. The fallback
-    // solver is retained only for non-zoom refits (for example after filtering).
+    // Insert only the waypoints required to make every linear segment safe.
     if(animate) for(var guard=0;guard<120;guard++){
       var hit=null,index=-1;
       for(var si=0;si<waypoints.length-1;si++){var bad=unsafeSegment(waypoints[si],waypoints[si+1]);if(bad){hit=bad;index=si;break;}}
       if(!hit||waypoints.length>=96) break;
-      var left=waypoints[index],right=waypoints[index+1],u=zoomRoute ? 0.5 : Math.max(.18,Math.min(.82,hit.u)),guess={};
+      var left=waypoints[index],right=waypoints[index+1],u=Math.max(.18,Math.min(.82,hit.u)),guess={};
       nodes.forEach(function(n){var a=left.points[n.id],b=right.points[n.id];guess[n.id]={dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:n.cx,cy:n.cy};});
-      var nextTime=left.time+(right.time-left.time)*u;
-      waypoints.splice(index+1,0,{time:nextTime,points:zoomRoute?layoutPointsAt(nextTime):solveWaypoint(guess)});
+      waypoints.splice(index+1,0,{time:left.time+(right.time-left.time)*u,points:solveWaypoint(guess)});
     }
     var keyTimes=waypoints.map(function(w){return +w.time.toFixed(6);});
     nodes.forEach(function(n){result[n.id]={routed:animate&&waypoints.length>2,staged:animate,keyTimes:keyTimes,points:waypoints.map(function(w){return w.points[n.id];})};});
@@ -1646,14 +1511,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),sc=+(o.scale||1).toFixed(4),psc=+(p.scale||1).toFixed(4),moveAnim='',scaleAnim='',tr=transition||plateTransition(id,o,previous);
     if(animate&&tr.keyTimes.length>2){
       var values=tr.points.map(function(q){return(+q.dx.toFixed(2))+' '+(+q.dy.toFixed(2));}).join(';'),scales=tr.points.map(function(q){return(+q.scale.toFixed(4));}).join(';'),times=tr.keyTimes.join(';');
-      var splines=tr.points.slice(1).map(function(){return'.42 0 .58 1';}).join(';');
-      moveAnim='<animateTransform attributeName="transform" type="translate" values="'+values+'" keyTimes="'+times+'" keySplines="'+splines+'" dur=".48s" fill="freeze" calcMode="spline"/>';
-      scaleAnim='<animateTransform attributeName="transform" type="scale" values="'+scales+'" keyTimes="'+times+'" keySplines="'+splines+'" dur=".48s" fill="freeze" calcMode="spline"/>';
+      moveAnim='<animateTransform attributeName="transform" type="translate" values="'+values+'" keyTimes="'+times+'" dur=".48s" fill="freeze" calcMode="linear"/>';
+      scaleAnim='<animateTransform attributeName="transform" type="scale" values="'+scales+'" keyTimes="'+times+'" dur=".48s" fill="freeze" calcMode="linear"/>';
     }
     if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
-      if(tr.keyTimes.length===2) moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".42 0 .58 1"/>';
+      if(tr.keyTimes.length===2) moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
     }
-    if(animate&&Math.abs(sc-psc)>.0005&&tr.keyTimes.length===2) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".42 0 .58 1"/>';
+    if(animate&&Math.abs(sc-psc)>.0005&&tr.keyTimes.length===2) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
     return {open:'<g transform="translate('+dx+' '+dy+')">'+moveAnim+'<g transform="translate('+o.cx.toFixed(2)+' '+o.cy.toFixed(2)+')"><g transform="scale('+sc+')">'+scaleAnim+'<g transform="translate('+(-o.cx).toFixed(2)+' '+(-o.cy).toFixed(2)+')">',close:'</g></g></g></g>'};
   }
   function frameMapBounds(b){
@@ -1729,6 +1593,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
   // Spread overlapping map dots apart (collision resolution) with a spring back
+<<<<<<< HEAD
   // to a size-aware geographic home. Small dots return to their true projected
   // coordinates; only unavoidable collisions receive the minimum displacement.
   // As the dots grow, their homes smoothly tighten into the near-touching marble
@@ -1750,8 +1615,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var g=packs[id],compact=id==='asia' ? 0.52 : 0.60,factor=1-(1-compact)*packT;g.x/=g.items.length||1;g.y/=g.items.length||1;
       g.items.forEach(function(m){m.px=g.x+(m.tx-g.x)*factor;m.py=g.y+(m.ty-g.y)*factor;m.x=m.px;m.y=m.py;});
     });
+=======
+  // to each dot's true geographic point — dense regions fan out, isolated dots
+  // stay put, and nothing overlaps.
+  function spreadDots(items, box){
+    // Extra clearance leaves enough room for simultaneous move/scale
+    // interpolation, not only the settled endpoints.
+    var N=items.length, pad=2.5, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
+>>>>>>> parent of 79996f1 (Pack station circles and smooth collision-free plate paths)
     // phase 1: collide + weak spring to home (positions dots near geography)
-    for(var it=0; it<180; it++){
+    for(var it=0; it<110; it++){
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
         dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
@@ -1761,10 +1634,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;
         }
       }
-      for(k=0;k<N;k++){ a=items[k]; a.x+=(a.px-a.x)*0.05; a.y+=(a.py-a.y)*0.05; }
+      for(k=0;k<N;k++){ a=items[k]; a.x+=(a.tx-a.x)*0.05; a.y+=(a.ty-a.y)*0.05; }
     }
     // phase 2: collision-only until settled — guarantees no overlap
-    for(it=0; it<120; it++){
+    for(it=0; it<60; it++){
       var moved=false;
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
@@ -1869,8 +1742,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     // A white-line path has one owner even if future custom aliases collide.
     var pieceOwner={};
     nodes.forEach(function(n){n.pieces=n.pieces.filter(function(piece){if(pieceOwner[piece.id]) return false;pieceOwner[piece.id]=n.id;return true;});});
-    var previous=state.mapPlateOffsets||{},previousZoom=state.mapPlateLayout?state.mapPlateLayout.zoom:(state.mapZoom||1),offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
-    var transitions=buildSafePlateTransitions(nodes,offsets,previous,animate,previousZoom,state.mapZoom||1),hasRoutedTransition=animate;
+    var previous=state.mapPlateOffsets||{},offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
+    var transitions=buildSafePlateTransitions(nodes,offsets,previous,animate),hasRoutedTransition=animate;
     pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1;m.dx=o.dx;m.dy=o.dy;m.plateScale=s;m.plateCx=o.cx;m.plateCy=o.cy;m.fx=o.cx+o.dx+(m.x-o.cx)*s;m.fy=o.cy+o.dy+(m.y-o.cy)*s;});
 
     // Remove active region pieces from the background, then draw their exact
