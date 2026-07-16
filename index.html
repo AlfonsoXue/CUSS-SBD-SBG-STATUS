@@ -1278,23 +1278,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     STATION_PLATE_CACHE[key]=chosen; return chosen;
   }
-  // Movement groups are driven by the station's region setting first. Broad
-  // legacy regions are subdivided by airport code only where the setting itself
-  // is ambiguous (Americas, Europe and Northeast Asia).
+  // Movement groups are driven by the station's region setting first. The
+  // requested joint plates keep North America, Europe, and China/India intact;
+  // the broad Northeast Asia region remains split into Japan and Korea.
   var PLATE_GROUPS=[
-    {id:'canada',label:'加拿大',codes:['YYZ','YVR']},
-    {id:'usa',label:'美國',codes:['ORD','DFW','IAH','LAX','JFK','SEA','SFO','IAD']},
-    {id:'western_europe',label:'西歐',codes:['LHR','AMS','CDG','MUC']},
-    {id:'southern_europe',label:'南歐',codes:['MXP','VIE']},
-    // Keep India active even before DEL is present in the current station rows;
-    // it is an explicit movement plate requested for the regional zoom view.
-    {id:'south_asia',label:'南亞',codes:['DEL'],alwaysActive:true},
+    {id:'north_america',label:'美國／加拿大',codes:['YYZ','YVR','ORD','DFW','IAH','LAX','JFK','SEA','SFO','IAD']},
+    {id:'europe',label:'歐洲',codes:['LHR','AMS','CDG','MUC','MXP','VIE'],targetZone:'upper_middle'},
     {id:'southeast_asia',label:'東南亞',codes:['DPS','CGK','KTI','KUL','CEB','CRK','MNL','SIN','BKK','CNX','DAD','HAN','SGN']},
-    {id:'china',label:'中國大陸',codes:['PEK','CAN','TFU','HGH','PVG','SHA','SZX','XMN','HKG','MFM']},
+    {id:'china',label:'中國大陸／印度',codes:['PEK','CAN','TFU','HGH','PVG','SHA','SZX','XMN','HKG','MFM','DEL']},
     {id:'taiwan',label:'台灣',codes:['KHH','TPE','TSA']},
     {id:'korea',label:'韓國',codes:['PUS','GMP','ICN']},
     {id:'japan',label:'日本',codes:['AOJ','FUK','KMQ','MYJ','OKA','KIX','UKB','SDJ','CTS','HND','NRT']},
-    {id:'oceania',label:'大洋洲',codes:['BNE']}
+    {id:'oceania',label:'大洋洲',codes:['BNE'],targetZone:'lower_middle'}
   ];
   var PLATE_GROUP_BY_ID={},PLATE_GROUP_BY_CODE={},MAP_GROUP_PIECES=null;
   PLATE_GROUPS.forEach(function(g){PLATE_GROUP_BY_ID[g.id]=g;g.codes.forEach(function(c){PLATE_GROUP_BY_CODE[c]=g;});});
@@ -1305,15 +1300,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     else if(/^(台灣|台湾|台灣區|台湾区)$/.test(r)) id='taiwan';
     else if(/^(日本)$/.test(r)) id='japan';
     else if(/^(韓國|韩国|南韓|南韩)$/.test(r)) id='korea';
-    else if(/^(南亞|南亚)$/.test(r)) id='south_asia';
+    else if(/^(南亞|南亚|印度)$/.test(r)) id='china';
     else if(/^(東南亞|东南亚)$/.test(r)) id='southeast_asia';
     else if(/^(紐澳|纽澳|澳紐|澳纽|澳洲|大洋洲)$/.test(r)) id='oceania';
-    else if(/^(美國|美国|usa|us)$/.test(r)) id='usa';
-    else if(/^(加拿大|canada)$/.test(r)) id='canada';
-    else if(/^(西歐|西欧|westerneurope)$/.test(r)) id='western_europe';
-    else if(/^(南歐|南欧|southerneurope)$/.test(r)) id='southern_europe';
-    else if(r==='美洲') id=(code==='YYZ'||code==='YVR')?'canada':'usa';
-    else if(r==='歐洲'||r==='欧洲') id=(code==='MXP'||code==='VIE')?'southern_europe':'western_europe';
+    else if(/^(美國|美国|usa|us|加拿大|canada)$/.test(r)) id='north_america';
+    else if(/^(西歐|西欧|westerneurope|南歐|南欧|southerneurope)$/.test(r)) id='europe';
+    else if(r==='美洲') id='north_america';
+    else if(r==='歐洲'||r==='欧洲') id='europe';
     else if(r==='東北亞'||r==='东北亚') id=(code==='PUS'||code==='GMP'||code==='ICN')?'korea':'japan';
     if(!id&&PLATE_GROUP_BY_CODE[code]) id=PLATE_GROUP_BY_CODE[code].id;
     if(id) return PLATE_GROUP_BY_ID[id];
@@ -1332,6 +1325,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     });
     return MAP_GROUP_PIECES;
   }
+  function transformedPlateBox(n,fx,fy,scale){
+    var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,s=scale||1;
+    (n.pieces||[]).forEach(function(piece){var b=piece.box;x0=Math.min(x0,fx+(b.x0-n.cx)*s);x1=Math.max(x1,fx+(b.x1-n.cx)*s);y0=Math.min(y0,fy+(b.y0-n.cy)*s);y1=Math.max(y1,fy+(b.y1-n.cy)*s);});
+    if(x0===Infinity) n.items.forEach(function(m){var r=m.R*s;x0=Math.min(x0,fx+(m.x-n.cx)*s-r);x1=Math.max(x1,fx+(m.x-n.cx)*s+r);y0=Math.min(y0,fy+(m.y-n.cy)*s-r);y1=Math.max(y1,fy+(m.y-n.cy)*s+r);});
+    return{x0:x0,y0:y0,x1:x1,y1:y1,w:x1-x0,h:y1-y0};
+  }
   // Compact long inter-region gaps, then resolve only actual station-circle
   // collisions between plates. A global geographic de-collision supplies a clean
   // starting frame; plates repel only when later compression would overlap them.
@@ -1344,12 +1343,20 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var gx=0,gy=0,weight=0;
     nodes.forEach(function(n){var w=n.items.length;gx+=n.cx*w;gy+=n.cy*w;weight+=w;});
     gx/=weight||1; gy/=weight||1;
+    var mapCx=BASE_VB.x+BASE_VB.w*.5,mapCy=BASE_VB.y+BASE_VB.h*.5;
     nodes.forEach(function(n){
       // Enlarge every active plate around its own geographic anchor while the
       // regional gaps compact. The stronger horizontal compaction matches the
       // wide map aspect and lets the enlarged plates fill the viewBox.
       n.scale=1+.32*t;
       n.tx=gx+(n.cx-gx)*(1-.36*t); n.ty=gy+(n.cy-gy)*(1-.28*t);
+      if(n.targetZone==='upper_middle'){
+        var ex=mapCx,ey=BASE_VB.y+BASE_VB.h*.24;
+        n.tx=n.tx+(ex-n.tx)*t;n.ty=n.ty+(ey-n.ty)*t;
+      }else if(n.targetZone==='lower_middle'){
+        var ox=mapCx+BASE_VB.w*.07,oy=BASE_VB.y+BASE_VB.h*.80;
+        n.tx=n.tx+(ox-n.tx)*t;n.ty=n.ty+(oy-n.ty)*t;
+      }
       n.fx=n.tx; n.fy=n.ty;
     });
     if(t>0){
@@ -1364,7 +1371,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             var ax=a.fx+(ma.x-a.cx)*a.scale,ay=a.fy+(ma.y-a.cy)*a.scale;
             var bx=b.fx+(mb.x-b.cx)*b.scale,by=b.fy+(mb.y-b.cy)*b.scale;
             var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy);
-            var min=ma.R*a.scale+mb.R*b.scale+2.4;
+            var min=ma.R*a.scale+mb.R*b.scale+4;
             if(d<min){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
               var hx=ma.x-mb.x,hy=ma.y-mb.y,hd=Math.sqrt(hx*hx+hy*hy),push=(min-d)*.26,ux=hd>.01?hx/hd:dx/d,uy=hd>.01?hy/hd:dy/d;
@@ -1384,7 +1391,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             ax=a.fx+(ma.x-a.cx)*a.scale;ay=a.fy+(ma.y-a.cy)*a.scale;
             bx=b.fx+(mb.x-b.cx)*b.scale;by=b.fy+(mb.y-b.cy)*b.scale;
             dx=ax-bx;dy=ay-by;d=Math.sqrt(dx*dx+dy*dy);
-            min=ma.R*a.scale+mb.R*b.scale+2.4;
+            min=ma.R*a.scale+mb.R*b.scale+4;
             if(d<min-.01){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
               hx=ma.x-mb.x;hy=ma.y-mb.y;hd=Math.sqrt(hx*hx+hy*hy);push=(min-d)*.5+.01;ux=hd>.01?hx/hd:dx/d;uy=hd>.01?hy/hd:dy/d;
@@ -1401,7 +1408,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       if(t>.999){
         var stationBox=function(n){
           var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,ox=n.fx-n.cx,oy=n.fy-n.cy;
-          n.items.forEach(function(m){var r=m.R*n.scale+1.2,x=n.fx+(m.x-n.cx)*n.scale,y=n.fy+(m.y-n.cy)*n.scale;x0=Math.min(x0,x-r);x1=Math.max(x1,x+r);y0=Math.min(y0,y-r);y1=Math.max(y1,y+r);});
+          n.items.forEach(function(m){var r=m.R*n.scale+2,x=n.fx+(m.x-n.cx)*n.scale,y=n.fy+(m.y-n.cy)*n.scale;x0=Math.min(x0,x-r);x1=Math.max(x1,x+r);y0=Math.min(y0,y-r);y1=Math.max(y1,y+r);});
           return{x0:x0,y0:y0,x1:x1,y1:y1};
         };
         for(it=0;it<160;it++){
@@ -1411,7 +1418,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             for(ai=0;ai<a.items.length&&!hit;ai++)for(bi=0;bi<b.items.length;bi++){
               ma=a.items[ai];mb=b.items[bi];
               ax=a.fx+(ma.x-a.cx)*a.scale;ay=a.fy+(ma.y-a.cy)*a.scale;bx=b.fx+(mb.x-b.cx)*b.scale;by=b.fy+(mb.y-b.cy)*b.scale;
-              if(Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by))<ma.R*a.scale+mb.R*b.scale+2.35){hit=true;break;}
+              if(Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by))<ma.R*a.scale+mb.R*b.scale+3.95){hit=true;break;}
             }
             if(!hit) continue;
             var ba=stationBox(a),bb=stationBox(b);
@@ -1425,17 +1432,95 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           if(!moved) break;
         }
       }
+      // Requested macro layout: Europe stays between and above North America
+      // and the China/India group; Oceania stays below Southeast Asia. These
+      // constraints use transformed land bounds (not only station circles), so
+      // the actual filled plates retain visible water gaps after enlargement.
+      var byNode={};nodes.forEach(function(n){byNode[n.id]=n;});
+      var north=byNode.north_america,europe=byNode.europe,china=byNode.china,sea=byNode.southeast_asia,oceania=byNode.oceania,landGap=2+6*t;
+      function keepRight(left,right,gap){
+        if(!left||!right) return false;
+        var lb=transformedPlateBox(left,left.fx,left.fy,left.scale),rb=transformedPlateBox(right,right.fx,right.fy,right.scale),need=lb.x1+gap-rb.x0;
+        if(need<=.01) return false;left.fx-=need*.5;right.fx+=need*.5;return true;
+      }
+      function keepBelow(upper,lower,gap){
+        if(!upper||!lower) return false;
+        var ub=transformedPlateBox(upper,upper.fx,upper.fy,upper.scale),lb=transformedPlateBox(lower,lower.fx,lower.fy,lower.scale),need=ub.y1+gap-lb.y0;
+        if(need<=.01) return false;upper.fy-=need*.25;lower.fy+=need*.75;return true;
+      }
+      for(it=0;it<260;it++){
+        moved=false;
+        if(keepRight(north,europe,landGap)) moved=true;
+        if(keepRight(europe,china,landGap)) moved=true;
+        if(keepBelow(sea,oceania,landGap)) moved=true;
+        // Re-apply the hard station-circle constraint after every land shift.
+        for(i=0;i<nodes.length;i++)for(j=i+1;j<nodes.length;j++){
+          a=nodes[i];b=nodes[j];
+          for(ai=0;ai<a.items.length;ai++)for(bi=0;bi<b.items.length;bi++){
+            ma=a.items[ai];mb=b.items[bi];
+            ax=a.fx+(ma.x-a.cx)*a.scale;ay=a.fy+(ma.y-a.cy)*a.scale;bx=b.fx+(mb.x-b.cx)*b.scale;by=b.fy+(mb.y-b.cy)*b.scale;
+            dx=ax-bx;dy=ay-by;d=Math.sqrt(dx*dx+dy*dy)||.01;min=ma.R*a.scale+mb.R*b.scale+4;
+            if(d<min-.01){hx=ma.x-mb.x;hy=ma.y-mb.y;hd=Math.sqrt(hx*hx+hy*hy);push=(min-d)*.5+.01;ux=hd>.01?hx/hd:dx/d;uy=hd>.01?hy/hd:dy/d;a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;moved=true;}
+          }
+        }
+        if(!moved) break;
+      }
     }
     nodes.forEach(function(n){out[n.id]={dx:n.fx-n.cx,dy:n.fy-n.cy,cx:n.cx,cy:n.cy,fx:n.fx,fy:n.fy,scale:n.scale,count:n.items.length};});
     return out;
   }
-  function plateMotion(id,offset,previous,animate){
+  function plateTransition(id,offset,previous,hint){
     var o=offset||{dx:0,dy:0,scale:1,cx:0,cy:0},p=(previous&&previous[id])||{dx:0,dy:0,scale:1,cx:o.cx,cy:o.cy};
-    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),sc=+(o.scale||1).toFixed(4),psc=+(p.scale||1).toFixed(4),moveAnim='',scaleAnim='';
-    if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
-      moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    var start={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:o.cx,cy:o.cy},end={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:o.cx,cy:o.cy};
+    return{routed:false,keyTimes:[0,1],points:[start,end]};
+  }
+  function transitionPointAt(tr,t){
+    var kt=tr.keyTimes,pts=tr.points;if(t<=0) return pts[0];if(t>=1) return pts[pts.length-1];
+    for(var i=1;i<kt.length;i++)if(t<=kt[i]){var a=pts[i-1],b=pts[i],u=(t-kt[i-1])/(kt[i]-kt[i-1]);return{dx:a.dx+(b.dx-a.dx)*u,dy:a.dy+(b.dy-a.dy)*u,scale:a.scale+(b.scale-a.scale)*u,cx:b.cx,cy:b.cy};}
+    return pts[pts.length-1];
+  }
+  function buildSafePlateTransitions(nodes,offsets,previous,animate){
+    var steps=animate?24:1,keyTimes=[],result={},start={},finish={};
+    nodes.forEach(function(n){
+      var p=(previous&&previous[n.id])||{dx:0,dy:0,scale:1},o=offsets[n.id]||{dx:0,dy:0,scale:1};
+      start[n.id]={dx:+p.dx||0,dy:+p.dy||0,scale:+p.scale||1,cx:n.cx,cy:n.cy};finish[n.id]={dx:+o.dx||0,dy:+o.dy||0,scale:+o.scale||1,cx:n.cx,cy:n.cy};result[n.id]={routed:animate,staged:animate,keyTimes:keyTimes,points:[]};
+    });
+    for(var step=0;step<=steps;step++){
+      var t=step/steps;keyTimes.push(+t.toFixed(4));
+      var work=nodes.map(function(n){var a=start[n.id],b=finish[n.id],s=a.scale+(b.scale-a.scale)*t;return{id:n.id,cx:n.cx,cy:n.cy,items:n.items,pieces:n.pieces,scale:s,fx:n.cx+a.dx+(b.dx-a.dx)*t,fy:n.cy+a.dy+(b.dy-a.dy)*t};});
+      if(step>0&&step<steps){
+        var by={};work.forEach(function(n){by[n.id]=n;});
+        var avg=work.reduce(function(sum,n){return sum+n.scale;},0)/(work.length||1),z=Math.max(0,Math.min(1,(avg-1)/.32)),gap=2+6*z;
+        function rightOf(left,right){if(!left||!right)return false;var lb=transformedPlateBox(left,left.fx,left.fy,left.scale),rb=transformedPlateBox(right,right.fx,right.fy,right.scale),need=lb.x1+gap-rb.x0;if(need<=.01)return false;left.fx-=need*.5;right.fx+=need*.5;return true;}
+        function below(upper,lower){if(!upper||!lower)return false;var ub=transformedPlateBox(upper,upper.fx,upper.fy,upper.scale),lb=transformedPlateBox(lower,lower.fx,lower.fy,lower.scale),need=ub.y1+gap-lb.y0;if(need<=.01)return false;upper.fy-=need*.25;lower.fy+=need*.75;return true;}
+        for(var it=0;it<260;it++){
+          var moved=false;if(rightOf(by.north_america,by.europe))moved=true;if(rightOf(by.europe,by.china))moved=true;if(below(by.southeast_asia,by.oceania))moved=true;
+          for(var i=0;i<work.length;i++)for(var j=i+1;j<work.length;j++){
+            var A=work[i],B=work[j];
+            for(var ai=0;ai<A.items.length;ai++)for(var bi=0;bi<B.items.length;bi++){
+              var ma=A.items[ai],mb=B.items[bi],ax=A.fx+(ma.x-A.cx)*A.scale,ay=A.fy+(ma.y-A.cy)*A.scale,bx=B.fx+(mb.x-B.cx)*B.scale,byy=B.fy+(mb.y-B.cy)*B.scale,dx=ax-bx,dy=ay-byy,d=Math.sqrt(dx*dx+dy*dy)||.01,min=ma.R*A.scale+mb.R*B.scale+4;
+              if(d<min-.01){var hx=ma.x-mb.x,hy=ma.y-mb.y,hd=Math.sqrt(hx*hx+hy*hy),push=(min-d)*.5+.01,ux=hd>.01?hx/hd:dx/d,uy=hd>.01?hy/hd:dy/d;A.fx+=ux*push;A.fy+=uy*push;B.fx-=ux*push;B.fy-=uy*push;moved=true;}
+            }
+          }
+          if(!moved)break;
+        }
+      }
+      work.forEach(function(n){result[n.id].points.push({dx:n.fx-n.cx,dy:n.fy-n.cy,scale:n.scale,cx:n.cx,cy:n.cy});});
     }
-    if(animate&&Math.abs(sc-psc)>.0005) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    return result;
+  }
+  function plateMotion(id,offset,previous,animate,transition){
+    var o=offset||{dx:0,dy:0,scale:1,cx:0,cy:0},p=(previous&&previous[id])||{dx:0,dy:0,scale:1,cx:o.cx,cy:o.cy};
+    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),sc=+(o.scale||1).toFixed(4),psc=+(p.scale||1).toFixed(4),moveAnim='',scaleAnim='',tr=transition||plateTransition(id,o,previous);
+    if(animate&&tr.keyTimes.length>2){
+      var values=tr.points.map(function(q){return(+q.dx.toFixed(2))+' '+(+q.dy.toFixed(2));}).join(';'),scales=tr.points.map(function(q){return(+q.scale.toFixed(4));}).join(';'),times=tr.keyTimes.join(';');
+      moveAnim='<animateTransform attributeName="transform" type="translate" values="'+values+'" keyTimes="'+times+'" dur=".48s" fill="freeze" calcMode="linear"/>';
+      scaleAnim='<animateTransform attributeName="transform" type="scale" values="'+scales+'" keyTimes="'+times+'" dur=".48s" fill="freeze" calcMode="linear"/>';
+    }
+    if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
+      if(tr.keyTimes.length===2) moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    }
+    if(animate&&Math.abs(sc-psc)>.0005&&tr.keyTimes.length===2) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
     return {open:'<g transform="translate('+dx+' '+dy+')">'+moveAnim+'<g transform="translate('+o.cx.toFixed(2)+' '+o.cy.toFixed(2)+')"><g transform="scale('+sc+')">'+scaleAnim+'<g transform="translate('+(-o.cx).toFixed(2)+' '+(-o.cy).toFixed(2)+')">',close:'</g></g></g></g>'};
   }
   function frameMapBounds(b){
@@ -1514,9 +1599,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // to each dot's true geographic point — dense regions fan out, isolated dots
   // stay put, and nothing overlaps.
   function spreadDots(items, box){
-    // Two map units of clearance leave enough room for simultaneous move/scale
+    // Extra clearance leaves enough room for simultaneous move/scale
     // interpolation, not only the settled endpoints.
-    var N=items.length, pad=2.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
+    var N=items.length, pad=2.5, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
     // phase 1: collide + weak spring to home (positions dots near geography)
     for(var it=0; it<110; it++){
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
@@ -1617,9 +1702,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     spreadDots(pool);
     var grouped={};
     pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,label:m.plateLabel,group:m.group,items:[]};grouped[m.plateId].items.push(m);});
-    // India/South Asia remains an active moving plate even when the current
-    // station rows do not yet contain DEL. Its canonical GEO point supplies the
-    // anchor, so the original India path participates in motion and scaling.
+    // Future explicitly-pinned groups may opt into activity without a row.
+    // India itself is owned by the active China/India joint group above.
     PLATE_GROUPS.forEach(function(g){if(pool.length&&g.alwaysActive&&!grouped[g.id]) grouped[g.id]={id:g.id,label:g.label,group:g,items:[]};});
 
     var nodes=Object.keys(grouped).map(function(id){
@@ -1632,12 +1716,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         if(anchors.length){var ax=0,ay=0;anchors.forEach(function(q){ax+=q.x;ay+=q.y;});x0=x1=ax/anchors.length;y0=y1=ay/anchors.length;}
         else if(land.length){var lx0=Infinity,ly0=Infinity,lx1=-Infinity,ly1=-Infinity;land.forEach(function(p){lx0=Math.min(lx0,p.box.x0);ly0=Math.min(ly0,p.box.y0);lx1=Math.max(lx1,p.box.x1);ly1=Math.max(ly1,p.box.y1);});x0=x1=(lx0+lx1)/2;y0=y1=(ly0+ly1)/2;}
       }
-      return {id:id,label:g.label,pieces:land,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
+      return {id:id,label:g.label,targetZone:g.group.targetZone||'',pieces:land,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
     });
     // A white-line path has one owner even if future custom aliases collide.
     var pieceOwner={};
     nodes.forEach(function(n){n.pieces=n.pieces.filter(function(piece){if(pieceOwner[piece.id]) return false;pieceOwner[piece.id]=n.id;return true;});});
     var previous=state.mapPlateOffsets||{},offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
+    var transitions=buildSafePlateTransitions(nodes,offsets,previous,animate),hasRoutedTransition=animate;
     pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1;m.dx=o.dx;m.dy=o.dy;m.plateScale=s;m.plateCx=o.cx;m.plateCy=o.cy;m.fx=o.cx+o.dx+(m.x-o.cx)*s;m.fy=o.cy+o.dy+(m.y-o.cy)*s;});
 
     // Remove active region pieces from the background, then draw their exact
@@ -1649,7 +1734,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     });
     var lifted=(state.mapZoom||1)>1.001;
     nodes.forEach(function(n){
-      var motion=plateMotion(n.id,offsets[n.id],previous,animate);
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate,transitions[n.id]);
       var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"/>';}).join('');
       plateLand+=motion.open+'<g data-plate-group="'+n.id+'" data-plate-label="'+esc(n.label)+'"'+(lifted&&land?' filter="url(#plateLift)"':'')+'>'+land+'</g>'+motion.close;
     });
@@ -1665,12 +1750,18 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var finalFrame=plateContentFrame(pool,nodes,offsets,names);
     var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
     var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
+    var waypointFrames=[];
+    if(animate&&hasRoutedTransition){
+      var waypointTimes=nodes.length?transitions[nodes[0].id].keyTimes.slice(1,-1):[];
+      waypointTimes.forEach(function(t){var via={};nodes.forEach(function(n){via[n.id]=transitionPointAt(transitions[n.id],t);});var f=plateContentFrame(pool,nodes,via,names);waypointFrames.push(f);displayFrame=unionMapFrames(displayFrame,f);});
+    }
     state.mapBounds=finalFrame;
     state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R*m.plateScale,plateId:m.plateId,plateLabel:m.plateLabel,plateScale:m.plateScale,region:m.s.region,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
     state.mapVB={x:state.mapBounds.x,y:state.mapBounds.y,w:state.mapBounds.w,h:state.mapBounds.h};
     state.mapFit=true;
-    state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame};
-    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0,scale:1};return{id:n.id,label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,scale:o.scale||1,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
+    state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame,waypoints:waypointFrames,routed:hasRoutedTransition};
+    state.mapPlateTransitions=transitions;
+    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0,scale:1},box=transformedPlateBox(n,n.cx+o.dx,n.cy+o.dy,o.scale||1);return{id:n.id,label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,scale:o.scale||1,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,box:box,codes:n.items.map(function(m){return m.s.code;})};})};
 
     var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
     var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#10251B" flood-opacity=".34"/></filter>';
@@ -1704,12 +1795,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var overlays='';
     nodes.forEach(function(n){
       var content=(leaderBy[n.id]||'')+(dotBy[n.id]||'')+(labelBy[n.id]||''); if(!content) return;
-      var motion=plateMotion(n.id,offsets[n.id],previous,animate); overlays+=motion.open+content+motion.close;
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate,transitions[n.id]); overlays+=motion.open+content+motion.close;
     });
     state.mapPlateOffsets=offsets;
 
     var shown=displayFrame,animClass=state.mapAnim?' class="map-unfold"':'',viewMotion='';
-    if(animate&&(Math.abs(startFrame.x-finalFrame.x)>.01||Math.abs(startFrame.y-finalFrame.y)>.01||Math.abs(startFrame.w-finalFrame.w)>.01||Math.abs(startFrame.h-finalFrame.h)>.01)){
+    if(animate&&!hasRoutedTransition&&(Math.abs(startFrame.x-finalFrame.x)>.01||Math.abs(startFrame.y-finalFrame.y)>.01||Math.abs(startFrame.w-finalFrame.w)>.01||Math.abs(startFrame.h-finalFrame.h)>.01)){
       viewMotion='<animate attributeName="viewBox" from="'+vbText(startFrame)+'" to="'+vbText(finalFrame)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
     }
     var animToken=++state.mapAnimToken;
