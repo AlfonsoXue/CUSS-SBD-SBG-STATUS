@@ -1385,8 +1385,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var dx=a.dir.x-b.dir.x,dy=a.dir.y-b.dir.y,den=Math.sqrt(dx*dx+dy*dy)||1,p=amount/den+.02;
       a.fx+=a.dir.x*p;a.fy+=a.dir.y*p;b.fx+=b.dir.x*p;b.fy+=b.dir.y*p;
     }
-    // Preserve the four blocks as rigid macro groups. When large dots or land
-    // boxes meet, both blocks move only farther along their assigned arm.
+    // Preserve the four blocks as rigid macro groups. When enlarged station
+    // circles meet, both blocks move only farther along their assigned arm.
     if(raw>0){
       for(var it=0;it<320;it++){
         var moved=false;
