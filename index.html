@@ -15,8 +15,8 @@
   ::-webkit-scrollbar-track{background:transparent}
   @keyframes sheetIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes scrimIn{from{opacity:0}to{opacity:1}}
-  /* fold/expand flourish when the map re-fits — mirrors the real X/Y empty-band fold */
-  @keyframes mapUnfold{from{transform:scale(.84,.88);opacity:.32}to{transform:scale(1,1);opacity:1}}
+  /* whole-map fade complements the per-white-line plate translation animation */
+  @keyframes mapUnfold{from{opacity:.62}to{opacity:1}}
   .map-unfold{animation:mapUnfold .45s cubic-bezier(.22,.61,.36,1);transform-origin:50% 50%}
   input:focus,select:focus,textarea:focus{outline:2px solid #00853C;outline-offset:1px}
   button{font-family:inherit}
@@ -194,7 +194,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapZoom: 1, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapZoom: 1, mapPlateOffsets: {}, mapPlateLayout: null, mapAnimationFrame: null, mapAnimToken: 0, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -262,9 +262,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     render();
   }
   function clearCombo(){ state.comboSel = []; state.comboOpen = false; render(); }
-  // The map is a box of marbles: every visible station circle must stay inside it.
-  // Panning/cropping is therefore never allowed to produce a viewBox smaller than
-  // the full station frame. Visual zoom is implemented by folding empty geo bands.
+  // Always frame the complete moved plates and station geography. Cropping cannot
+  // discard a station; zoom is expressed by intact white-line plates translating.
   function clampVB(vb){
     var b = state.mapBounds; if(!b) return vb;
     return { x:b.x, y:b.y, w:b.w, h:b.h };
@@ -284,8 +283,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     return true;
   }
-  // One authoritative constraint: the only legal manual view is the complete
-  // folded frame. This makes the all-circles invariant independent of input.
+  // One authoritative constraint: the legal view is the complete plate frame.
   function constrainMapVB(vb){
     return clampVB(vb);
   }
@@ -1215,43 +1213,162 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // ---- map ----
   var MW = 1000, MH = 500;
   function mproj(lat, lon){ return { x:(lon+180)/360*MW, y:(90-lat)/180*MH }; }
-  // Build a monotonic accordion fold for one projected axis. Station-occupied
-  // intervals stay 1:1; only gaps with no station centres are shortened. Increasing
-  // zoom tightens those gaps, enlarging useful map detail without dropping a station.
-  function buildAxisFold(values, limit, zoom, keepPad, gapCap){
-    if(!values || !values.length) return { f:function(x){ return x; }, total:limit, folded:0 };
-    zoom=Math.max(1,Math.min(4,zoom||1));
-    var iv=[], cap=Math.max(6,gapCap/zoom);
-    values.slice().sort(function(a,b){ return a-b; }).forEach(function(x){
-      var lo=Math.max(0,x-keepPad), hi=Math.min(limit,x+keepPad);
-      if(iv.length && lo<=iv[iv.length-1].hi) iv[iv.length-1].hi=Math.max(iv[iv.length-1].hi,hi);
-      else iv.push({lo:lo,hi:hi});
-    });
-    var seg=[], cur=0, folded=0;
-    function add(a,b,isGap){
-      if(b<=a) return;
-      var oldW=b-a, newW=isGap?Math.min(oldW,cap):oldW;
-      seg.push({a:a,b:b,na:cur,nb:cur+newW});
-      cur+=newW; folded+=oldW-newW;
-    }
-    var prev=0;
-    iv.forEach(function(g){ add(prev,g.lo,true); add(g.lo,g.hi,false); prev=g.hi; });
-    add(prev,limit,true);
-    function f(x){
-      if(x<=0) return 0; if(x>=limit) return cur;
-      var lo=0,hi=seg.length-1;
-      while(lo<hi){ var mid=(lo+hi)>>1; if(x<=seg[mid].b) hi=mid; else lo=mid+1; }
-      var s=seg[lo], d=s.b-s.a||1;
-      return s.na+(x-s.a)/d*(s.nb-s.na);
-    }
-    return { f:f, total:cur, folded:folded, segments:seg };
+  // Split the original basemap at its own closed white-line boundaries. Each
+  // subpath is moved intact: no longitude/latitude remap and no shape distortion.
+  var MAP_PIECES=null, STATION_PLATE_CACHE={};
+  function mapPathPoints(d){
+    var out=[], re=/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g,m;
+    while((m=re.exec(d))) out.push({x:+m[1],y:+m[2]});
+    return out;
   }
-  // MAPCONT paths are M/L coordinate pairs. Applying the same X/Y folds to land
-  // and stations keeps the visual geography aligned on both axes.
-  function remapPathXY(d, fx, fy){
-    return d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g,function(_,x,y){
-      return fx.f(+x).toFixed(1)+','+fy.f(+y).toFixed(1);
+  function polygonArea(poly){
+    var a=0; for(var i=0,j=poly.length-1;i<poly.length;j=i++) a+=poly[j].x*poly[i].y-poly[i].x*poly[j].y;
+    return Math.abs(a/2);
+  }
+  function pointInPolygon(p,poly){
+    var yes=false;
+    for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+      var a=poly[i],b=poly[j];
+      if(((a.y>p.y)!==(b.y>p.y)) && p.x<(b.x-a.x)*(p.y-a.y)/((b.y-a.y)||1e-9)+a.x) yes=!yes;
+    }
+    return yes;
+  }
+  function distanceToPolygon(p,poly){
+    var best=Infinity;
+    for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+      var a=poly[j],b=poly[i],vx=b.x-a.x,vy=b.y-a.y;
+      var t=Math.max(0,Math.min(1,((p.x-a.x)*vx+(p.y-a.y)*vy)/(vx*vx+vy*vy||1)));
+      var dx=p.x-(a.x+t*vx),dy=p.y-(a.y+t*vy); best=Math.min(best,Math.sqrt(dx*dx+dy*dy));
+    }
+    return best;
+  }
+  function getMapPieces(){
+    if(MAP_PIECES) return MAP_PIECES;
+    MAP_PIECES=[];
+    MAPCONT.forEach(function(cont,ci){
+      var sub=cont.p.match(/M[^Z]*Z/g)||[];
+      sub.forEach(function(d,si){
+        var poly=mapPathPoints(d); if(poly.length<3) return;
+        var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+        poly.forEach(function(p){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y);});
+        MAP_PIECES.push({id:ci+':'+si,continent:cont.c,d:d,poly:poly,area:polygonArea(poly),box:{x0:x0,y0:y0,x1:x1,y1:y1}});
+      });
     });
+    return MAP_PIECES;
+  }
+  function stationMapPiece(code,p,pieces){
+    var key=(code||'')+'|'+p.x.toFixed(2)+'|'+p.y.toFixed(2);
+    if(STATION_PLATE_CACHE[key]) return STATION_PLATE_CACHE[key];
+    var inside=[];
+    pieces.forEach(function(piece){ if(pointInPolygon(p,piece.poly)) inside.push(piece); });
+    inside.sort(function(a,b){return a.area-b.area;});
+    var chosen=inside[0];
+    if(!chosen){
+      var best=Infinity;
+      pieces.forEach(function(piece){var d=distanceToPolygon(p,piece.poly);if(d<best){best=d;chosen=piece;}});
+    }
+    STATION_PLATE_CACHE[key]=chosen; return chosen;
+  }
+  // Compact long inter-region gaps, then resolve only actual station-circle
+  // collisions between plates. The collision threshold grows with zoom, so the
+  // white-line cuts lift gradually instead of jumping apart at the first step.
+  // Every station on a plate shares one translation, preserving its local map.
+  function layoutStationPlates(nodes,zoom){
+    var raw=Math.max(0,Math.min(1,((zoom||1)-1)/3));
+    var t=raw*raw*(3-2*raw),out={}; // smoothstep: no abrupt first zoom step
+    if(!nodes.length) return out;
+    var gx=0,gy=0,weight=0;
+    nodes.forEach(function(n){var w=n.items.length;gx+=n.cx*w;gy+=n.cy*w;weight+=w;});
+    gx/=weight||1; gy/=weight||1;
+    nodes.forEach(function(n){
+      n.tx=gx+(n.cx-gx)*(1-.22*t); n.ty=gy+(n.cy-gy)*(1-.14*t);
+      n.fx=n.tx; n.fy=n.ty;
+    });
+    if(t>0){
+      // Adjacent country shapes are allowed to overlap; only their station
+      // circles repel. This keeps large plates such as China and the USA from
+      // exploding the global frame merely because their land boxes are wide.
+      for(var it=0;it<150;it++){
+        for(var i=0;i<nodes.length;i++)for(var j=i+1;j<nodes.length;j++){
+          var a=nodes[i],b=nodes[j];
+          for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
+            var ma=a.items[ai],mb=b.items[bi];
+            var ax=ma.x+a.fx-a.cx,ay=ma.y+a.fy-a.cy;
+            var bx=mb.x+b.fx-b.cx,by=mb.y+b.fy-b.cy;
+            var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy);
+            var min=(ma.R+mb.R+1.4)*t;
+            if(d<min){
+              if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
+              var push=(min-d)*.26,ux=dx/d,uy=dy/d;
+              a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;
+            }
+          }
+        }
+        nodes.forEach(function(n){n.fx+=(n.tx-n.fx)*.045;n.fy+=(n.ty-n.fy)*.045;});
+      }
+      // Finish at full zoom without any cross-plate station overlap. At lower
+      // zoom the proportional threshold produces a continuous lift animation.
+      for(it=0;it<280;it++){
+        var moved=false;
+        for(i=0;i<nodes.length;i++)for(j=i+1;j<nodes.length;j++){
+          a=nodes[i];b=nodes[j];
+          for(ai=0;ai<a.items.length;ai++)for(bi=0;bi<b.items.length;bi++){
+            ma=a.items[ai];mb=b.items[bi];
+            ax=ma.x+a.fx-a.cx;ay=ma.y+a.fy-a.cy;
+            bx=mb.x+b.fx-b.cx;by=mb.y+b.fy-b.cy;
+            dx=ax-bx;dy=ay-by;d=Math.sqrt(dx*dx+dy*dy);
+            min=(ma.R+mb.R+1.4)*t;
+            if(d<min-.01){
+              if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
+              push=(min-d)*.5+.01;ux=dx/d;uy=dy/d;
+              a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;moved=true;
+            }
+          }
+        }
+        if(!moved) break;
+      }
+      // Rigid clusters can interlock (notably China/Taiwan). If pair forces
+      // cannot untangle them at the maximum step, separate only those still
+      // colliding clusters on their shortest original map axis. This is a
+      // conservative last pass and never deforms either white-line plate.
+      if(t>.999){
+        var stationBox=function(n){
+          var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,ox=n.fx-n.cx,oy=n.fy-n.cy;
+          n.items.forEach(function(m){var r=m.R+.7;x0=Math.min(x0,m.x+ox-r);x1=Math.max(x1,m.x+ox+r);y0=Math.min(y0,m.y+oy-r);y1=Math.max(y1,m.y+oy+r);});
+          return{x0:x0,y0:y0,x1:x1,y1:y1};
+        };
+        for(it=0;it<160;it++){
+          moved=false;
+          for(i=0;i<nodes.length;i++)for(j=i+1;j<nodes.length;j++){
+            a=nodes[i];b=nodes[j];var hit=false;
+            for(ai=0;ai<a.items.length&&!hit;ai++)for(bi=0;bi<b.items.length;bi++){
+              ma=a.items[ai];mb=b.items[bi];
+              ax=ma.x+a.fx-a.cx;ay=ma.y+a.fy-a.cy;bx=mb.x+b.fx-b.cx;by=mb.y+b.fy-b.cy;
+              if(Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by))<ma.R+mb.R+1.35){hit=true;break;}
+            }
+            if(!hit) continue;
+            var ba=stationBox(a),bb=stationBox(b);
+            var aLeft=a.cx<=b.cx,aAbove=a.cy<=b.cy;
+            var needX=aLeft?ba.x1-bb.x0:bb.x1-ba.x0;
+            var needY=aAbove?ba.y1-bb.y0:bb.y1-ba.y0;
+            if(needX<=needY){push=Math.max(0,needX)*.5+.02;a.fx+=aLeft?-push:push;b.fx+=aLeft?push:-push;}
+            else {push=Math.max(0,needY)*.5+.02;a.fy+=aAbove?-push:push;b.fy+=aAbove?push:-push;}
+            moved=true;
+          }
+          if(!moved) break;
+        }
+      }
+    }
+    nodes.forEach(function(n){out[n.id]={dx:n.fx-n.cx,dy:n.fy-n.cy,cx:n.cx,cy:n.cy,fx:n.fx,fy:n.fy,count:n.items.length};});
+    return out;
+  }
+  function plateMotion(id,offset,previous,animate){
+    var o=offset||{dx:0,dy:0},p=(previous&&previous[id])||{dx:0,dy:0};
+    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),anim='';
+    if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
+      anim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    }
+    return {open:'<g transform="translate('+dx+' '+dy+')">'+anim,close:'</g>'};
   }
   function frameMapBounds(b){
     var want=BASE_VB.w/BASE_VB.h, have=b.w/b.h;
@@ -1259,6 +1376,25 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     else { var nw=b.h*want, cx=b.x+b.w/2; b={x:cx-nw/2,y:b.y,w:nw,h:b.h}; }
     return b;
   }
+  function plateContentFrame(pool,nodes,offsets,names){
+    if(!pool.length) return{x:BASE_VB.x,y:BASE_VB.y,w:BASE_VB.w,h:BASE_VB.h};
+    var mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+    pool.forEach(function(m){
+      var o=offsets[m.plateId]||{dx:0,dy:0},x=m.x+o.dx,y=m.y+o.dy,vr=m.R+4;
+      mnx=Math.min(mnx,x-vr);mxx=Math.max(mxx,x+vr);mny=Math.min(mny,y-vr);mxy=Math.max(mxy,y+vr);
+    });
+    nodes.forEach(function(n){
+      if(!n.piece) return; var o=offsets[n.id]||{dx:0,dy:0},b=n.piece.box;
+      mnx=Math.min(mnx,b.x0+o.dx);mxx=Math.max(mxx,b.x1+o.dx);mny=Math.min(mny,b.y0+o.dy);mxy=Math.max(mxy,b.y1+o.dy);
+    });
+    var mgx=names?42:18,mgy=names?34:16;
+    return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:(mxx-mnx)+2*mgx,h:(mxy-mny)+2*mgy});
+  }
+  function unionMapFrames(a,b){
+    var x0=Math.min(a.x,b.x),y0=Math.min(a.y,b.y),x1=Math.max(a.x+a.w,b.x+b.w),y1=Math.max(a.y+a.h,b.y+b.h);
+    return frameMapBounds({x:x0,y:y0,w:x1-x0,h:y1-y0});
+  }
+  function vbText(v){return v.x+' '+v.y+' '+v.w+' '+v.h;}
   // continent -> our-region membership for choropleth (based on station.region groups)
   var CONT_LABEL = {
     'North America':'美洲','South America':'南美','Europe':'歐洲','Africa':'非洲','Asia':'亞洲','Oceania':'大洋洲'
@@ -1361,103 +1497,102 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
 
   function mapSVGHTML(){
-    var visible = filteredStations();
-    var ocean = state.mapTheme==='dark' ? '#161E22' : '#EAF1F4';
-    var stroke = state.mapTheme==='dark' ? '#0E1417' : '#FFFFFF';
-    var dotStroke = state.mapTheme==='dark' ? '#0E1417' : '#fff';
-    var leadStroke = state.mapTheme==='dark' ? '#6C7A72' : '#8A968F';
-    var sc = state.dotScale;
-    var names = state.showNames;
-    var twoTone = state.dotColor==='cuss';
-    var cussFrac = names ? 0.70 : 0.56;   // CUSS (top) always the larger share; more room for the label when names show
-    // Project first, then fold only station-empty longitude/latitude bands. Land
-    // and dots share the exact same piecewise mapping, so they cannot drift apart.
-    var geoPool = visible.filter(function(s){ return GEO[s.code]||(s.lat!=null); }).map(function(s){
-      var g = GEO[s.code] || { lat:+s.lat, lon:+s.lon };
-      var p = mproj(g.lat, g.lon);
-      return { s:s, px:p.x, py:p.y, R:baseDotRadius(s)*sc };
+    var visible=filteredStations();
+    var ocean=state.mapTheme==='dark'?'#161E22':'#EAF1F4';
+    var stroke=state.mapTheme==='dark'?'#0E1417':'#FFFFFF';
+    var dotStroke=state.mapTheme==='dark'?'#0E1417':'#fff';
+    var leadStroke=state.mapTheme==='dark'?'#6C7A72':'#8A968F';
+    var sc=state.dotScale,names=state.showNames,twoTone=state.dotColor==='cuss';
+    var cussFrac=names?0.70:0.56,pieces=getMapPieces();
+
+    // Resolve each station to the smallest enclosing original white-line subpath.
+    // Coastal points fall back to the nearest white boundary.
+    var pool=visible.filter(function(s){return GEO[s.code]||(s.lat!=null);}).map(function(s){
+      var g=GEO[s.code]||{lat:+s.lat,lon:+s.lon},p=mproj(g.lat,g.lon),piece=stationMapPiece(s.code,p,pieces);
+      return {s:s,plateId:piece?piece.id:'station:'+s.id,piece:piece,tx:p.x,ty:p.y,x:p.x,y:p.y,R:baseDotRadius(s)*sc};
     });
-    var foldX=buildAxisFold(geoPool.map(function(m){ return m.px; }),MW,state.mapZoom||1,32,56);
-    var foldY=buildAxisFold(geoPool.map(function(m){ return m.py; }),MH,state.mapZoom||1,24,38);
-    state.mapFold={xTotal:foldX.total,yTotal:foldY.total,xFolded:foldX.folded,yFolded:foldY.folded,zoom:state.mapZoom||1};
-    var land = MAPCONT.map(function(c){
-      return '<path d="'+remapPathXY(c.p,foldX,foldY)+'" fill="'+continentFill(c.c, visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
-    }).join('');
-    var pool=geoPool.map(function(m){
-      var x=foldX.f(m.px),y=foldY.f(m.py);
-      return {s:m.s,tx:x,ty:y,x:x,y:y,R:m.R};
+    var grouped={};
+    pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,piece:m.piece,items:[]};grouped[m.plateId].items.push(m);});
+    Object.keys(grouped).forEach(function(id){spreadDots(grouped[id].items);});
+
+    var nodes=Object.keys(grouped).map(function(id){
+      var g=grouped[id],x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,maxR=0;
+      g.items.forEach(function(m){x0=Math.min(x0,m.x);x1=Math.max(x1,m.x);y0=Math.min(y0,m.y);y1=Math.max(y1,m.y);maxR=Math.max(maxR,m.R);});
+      return {id:id,piece:g.piece,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
     });
-    spreadDots(pool,{x0:0,y0:0,x1:foldX.total,y1:foldY.total});
-    // draw smaller (lower pax) dots first, big hubs on top
-    pool.sort(function(a,b){ return (a.s.pax||0)-(b.s.pax||0); });
-    // Frame the entire folded world plus every complete visual circle. This bound is
-    // authoritative for every interaction; a smaller/cropped viewBox is illegal.
-    if(pool.length){
-      var mnx=0,mny=0,mxx=foldX.total,mxy=foldY.total;
-      pool.forEach(function(m){ var vr=m.R+4; mnx=Math.min(mnx,m.x-vr); mxx=Math.max(mxx,m.x+vr); mny=Math.min(mny,m.y-vr); mxy=Math.max(mxy,m.y+vr); });
-      var mgx=names?46:18,mgy=names?38:16;
-      state.mapBounds=frameMapBounds({x:mnx-mgx,y:mny-mgy,w:(mxx-mnx)+2*mgx,h:(mxy-mny)+2*mgy});
-    }else{
-      state.mapBounds={x:BASE_VB.x,y:BASE_VB.y,w:BASE_VB.w,h:BASE_VB.h};
-    }
-    // Strict marble-box invariant: all dots are remembered and the rendered view is
-    // always the complete frame, regardless of prior drag/zoom input.
-    state.mapPool = pool.map(function(m){ return { x:m.x, y:m.y, R:m.R }; });
+    var previous=state.mapPlateOffsets||{},offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
+    pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0};m.dx=o.dx;m.dy=o.dy;m.fx=m.x+o.dx;m.fy=m.y+o.dy;});
+
+    // Remove occupied pieces from the base layer, then draw those exact paths as
+    // translated plates. Their original country/region white outlines are the cuts.
+    var occupied={},baseLand='',plateLand='';
+    nodes.forEach(function(n){occupied[n.id]=true;});
+    pieces.forEach(function(piece){
+      if(!occupied[piece.id]) baseLand+='<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
+    });
+    var lifted=(state.mapZoom||1)>1.001;
+    nodes.forEach(function(n){
+      if(!n.piece) return;
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate);
+      plateLand+=motion.open+'<path d="'+n.piece.d+'" fill="'+continentFill(n.piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"'+(lifted?' filter="url(#plateLift)"':'')+'/>'+motion.close;
+    });
+
+    // Frame every full moved plate and every complete station circle. During a
+    // transition the old and new frames are both retained, so no intermediate
+    // animation frame can slice a moving station at the pane edge.
+    var finalFrame=plateContentFrame(pool,nodes,offsets,names);
+    var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
+    var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
+    state.mapBounds=finalFrame;
+    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R,plateId:m.plateId,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
     state.mapVB={x:state.mapBounds.x,y:state.mapBounds.y,w:state.mapBounds.w,h:state.mapBounds.h};
     state.mapFit=true;
-    // label font in world units scales with the current view so on-screen size stays ~constant
-    var vbNow = state.mapVB;
-    var labelFS = Math.max(2.6, Math.min(18, vbNow.w * 0.011)) * (state.mapNameScale||1);
-    var defs = '', dots = '', labelItems = [];
+    state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame};
+    state.mapPlateLayout={zoom:state.mapZoom||1,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0};return{id:n.id,dx:o.dx,dy:o.dy,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
+
+    var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
+    var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#10251B" flood-opacity=".34"/></filter>';
+    var dotBy={},leaderBy={},labelBy={},labelItems=[];
+    function addPart(bucket,id,html){bucket[id]=(bucket[id]||'')+html;}
+    pool.sort(function(a,b){return(a.s.pax||0)-(b.s.pax||0);});
     pool.forEach(function(m){
-      var s = m.s;
-      var cx = +m.x.toFixed(1), cy = +m.y.toFixed(1);
-      var R = +m.R.toFixed(1);
-      var body;
+      var s=m.s,cx=+m.x.toFixed(1),cy=+m.y.toFixed(1),R=+m.R.toFixed(1),body;
       if(twoTone){
-        var cid = 'dc'+s.id;
-        var xL = (cx-R).toFixed(1), yT = (cy-R).toFixed(1), W = (2*R).toFixed(1), FULL = (2*R).toFixed(1);
-        // full SBD base, then CUSS overlay on top — avoids the antialiased seam
-        // a pair of adjacent rects would leave at the split
-        var topH = (2*R*cussFrac).toFixed(1);
-        defs += '<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
-        body = '<g clip-path="url(#'+cid+')">'
-          + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/>'
-          + '<rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/>'
-          + '</g>'
-          + '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="0.9"/>';
-      } else {
-        body = '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="0.9"/>';
-      }
-      var selRing = s.id===state.selectedId ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>' : '';
-      var kpiRing = (s.kpi && state.showKpiRing) ? '<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>' : '';
-      dots += '<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>';
+        var cid='dc'+s.id,xL=(cx-R).toFixed(1),yT=(cy-R).toFixed(1),W=(2*R).toFixed(1),FULL=(2*R).toFixed(1),topH=(2*R*cussFrac).toFixed(1);
+        defs+='<clipPath id="'+cid+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'"/></clipPath>';
+        body='<g clip-path="url(#'+cid+')"><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+FULL+'" fill="'+STATUS[s.sbd].color+'"/><rect x="'+xL+'" y="'+yT+'" width="'+W+'" height="'+topH+'" fill="'+STATUS[s.cuss].color+'"/></g><circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+dotStroke+'" stroke-width="0.9"/>';
+      }else body='<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+dotFill(s)+'" fill-opacity="0.92" stroke="'+dotStroke+'" stroke-width="0.9"/>';
+      var selRing=s.id===state.selectedId?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+3.5).toFixed(1)+'" fill="none" stroke="#00853C" stroke-width="1.6"/>':'';
+      var kpiRing=(s.kpi&&state.showKpiRing)?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>':'';
+      addPart(dotBy,m.plateId,'<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>');
       if(names){
-        var hy = twoTone ? (cy - R + R*cussFrac) : cy;   // home = on the dot (CUSS band)
-        labelItems.push({ s:s, cx:cx, cy:cy, fs:labelFS, hx:cx, hy:hy, lx:cx, ly:hy,
-                          w: s.code.length*labelFS*0.62, h: labelFS });
+        var hy=twoTone?(m.fy-R+R*cussFrac):m.fy;
+        labelItems.push({s:s,plateId:m.plateId,dx:m.dx,dy:m.dy,cx:m.fx,cy:m.fy,fs:labelFS,hx:m.fx,hy:hy,lx:m.fx,ly:hy,w:s.code.length*labelFS*.62,h:labelFS});
       }
     });
-    // de-collide labels and draw leader lines for the ones that got pulled out
-    var leaders = '', labels = '';
-    if(names && labelItems.length){
+    if(names&&labelItems.length){
       layoutLabels(labelItems);
       labelItems.forEach(function(m){
-        var moved = Math.abs(m.lx-m.hx) + Math.abs(m.ly-m.hy) > 1.6;
-        if(moved){
-          leaders += '<line x1="'+m.cx.toFixed(1)+'" y1="'+m.cy.toFixed(1)+'" x2="'+m.lx.toFixed(1)+'" y2="'+m.ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="0.55" stroke-opacity="0.85"/>'
-            + '<circle cx="'+m.lx.toFixed(1)+'" cy="'+m.ly.toFixed(1)+'" r="0.9" fill="'+leadStroke+'"/>';
-        }
-        var by = (m.ly + m.fs*0.34).toFixed(1);
-        labels += '<text x="'+m.lx.toFixed(1)+'" y="'+by+'" text-anchor="middle" font-size="'+m.fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(m.fs*0.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>';
+        var cx=m.cx-m.dx,cy=m.cy-m.dy,lx=m.lx-m.dx,ly=m.ly-m.dy,moved=Math.abs(m.lx-m.hx)+Math.abs(m.ly-m.hy)>1.6;
+        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="0.55" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="0.9" fill="'+leadStroke+'"/>');
+        addPart(labelBy,m.plateId,'<text x="'+lx.toFixed(1)+'" y="'+(ly+m.fs*.34).toFixed(1)+'" text-anchor="middle" font-size="'+m.fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(m.fs*.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>');
       });
     }
-    var vb = state.mapVB;
-    // one-shot accordion animation when the folded all-station frame changes
-    var animClass = state.mapAnim ? ' class="map-unfold"' : '';
-    state.mapAnim = false;
-    return '<svg id="worldmap"'+animClass+' viewBox="'+vb.x+' '+vb.y+' '+vb.w+' '+vb.h+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:pan-y;cursor:default" xmlns="http://www.w3.org/2000/svg">'
-      + '<defs>'+defs+'</defs>' + land + leaders + dots + labels + '</svg>';
+    var overlays='';
+    nodes.forEach(function(n){
+      var content=(leaderBy[n.id]||'')+(dotBy[n.id]||'')+(labelBy[n.id]||''); if(!content) return;
+      var motion=plateMotion(n.id,offsets[n.id],previous,animate); overlays+=motion.open+content+motion.close;
+    });
+    state.mapPlateOffsets=offsets;
+
+    var shown=displayFrame,animClass=state.mapAnim?' class="map-unfold"':'',viewMotion='';
+    if(animate&&(Math.abs(startFrame.x-finalFrame.x)>.01||Math.abs(startFrame.y-finalFrame.y)>.01||Math.abs(startFrame.w-finalFrame.w)>.01||Math.abs(startFrame.h-finalFrame.h)>.01)){
+      viewMotion='<animate attributeName="viewBox" from="'+vbText(startFrame)+'" to="'+vbText(finalFrame)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    }
+    var animToken=++state.mapAnimToken;
+    if(animate) setTimeout(function(){if(state.mapAnimToken===animToken&&state.view==='map') render();},520);
+    state.mapAnim=false;
+    return '<svg id="worldmap"'+animClass+' viewBox="'+vbText(shown)+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:pan-y;cursor:default" xmlns="http://www.w3.org/2000/svg"><defs>'+defs+'</defs>'+viewMotion+baseLand+plateLand+overlays+'</svg>';
   }
 
   function mapPanelHTML(){
@@ -1616,9 +1751,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // shown in the map panel header (next to 匯出地圖圖片)
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
-      +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">全站縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.8" title="摺疊更多空白經緯度並放大；所有場站保持可見" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
-      +     '<button data-action="zoomMap" data-k="1.25" title="展開空白經緯度並縮小；所有場站保持可見" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
+      +     '<button data-action="zoomMap" data-k="0.8" title="沿原始白線切出含場站區域並加強板塊位移" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="1.25" title="減少板塊位移並回到原始相對地理位置" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
       +   '</div>'
@@ -2120,8 +2255,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
 
   // ---- map zoom (wheel) ----
-  // Conventional cropping/panning would eject marbles from the box. Wheel zoom
-  // instead tightens/loosens empty X/Y folds and always re-renders the full frame.
+  // Wheel zoom increases/decreases intact plate translation; it never deforms a
+  // country path or crops away a station from the complete geographic frame.
   document.addEventListener('wheel', function(e){
     var svg = e.target.closest ? e.target.closest('#worldmap') : null;
     if(!svg) return;
