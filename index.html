@@ -141,9 +141,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return false;
   }
 
-  var FIELDS = ['code','region','phase','kpi','cuss','sbd','sbg','cussVendor','sbdVendor','sbgVendor','cussDate','sbdDate','note','schedNote','flights','pax','bagTag'];
+  var FIELDS = ['code','region','phase','kpi','cuss','sbd','sbg','cussVendor','sbdVendor','sbgVendor','cussDate','sbdDate','note','schedNote','flights','pax','bagTag','hidden'];
   var NUMFIELDS = {flights:1, pax:1};
-  var BOOLFIELDS = {kpi:1, bagTag:1};
+  var BOOLFIELDS = {kpi:1, bagTag:1, hidden:1};
   function normalize(s){
     var o = {id:s.id};
     FIELDS.forEach(function(f){
@@ -176,7 +176,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }catch(e){}
     return seed();
   }
-  function save(stations){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(stations)); }catch(e){} }
+  var LU_STORE = STORE_KEY+'_updated';
+  function save(stations){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(stations)); var now=Date.now(); localStorage.setItem(LU_STORE, String(now)); if(typeof state!=='undefined'){ state.lastUpdated=now; state.lastUpdatedStr=null; } }catch(e){} }
+  function loadLastUpdated(){ try{ var v=+localStorage.getItem(LU_STORE); if(v) return v; }catch(e){} return null; }
+  // stations shown / counted everywhere (hidden ones are fully excluded)
+  function liveStations(){ return state.stations.filter(function(s){ return !s.hidden; }); }
+  function hiddenStations(){ return state.stations.filter(function(s){ return !!s.hidden; }); }
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
@@ -184,7 +189,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
-                pickerOpen: false, logOpen: false };
+                pickerOpen: false, logOpen: false, hiddenOpen: false,
+                lastUpdated: loadLastUpdated(),
+                lastUpdatedStr: (SNAPSHOT && window.__SNAPSHOT_TS__) ? String(window.__SNAPSHOT_TS__) : null };
   var BASE_VB = { x:0, y:12, w:1000, h:408 };
   var VB_RATIO = BASE_VB.h / BASE_VB.w;
   // baseline = the data as loaded when this file was opened (before any edits);
@@ -194,6 +201,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   function stationMatch(s){
     var f = state.filters;
+    if(s.hidden) return false;               // hidden = excluded from every view/calc
     if(f.excluded[s.id]) return false;
     if(f.region!=='all' && s.region!==f.region) return false;
     if(f.cuss!=='all' && s.cuss!==f.cuss) return false;
@@ -261,6 +269,28 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
   function toggleLog(){ state.logOpen = !state.logOpen; render(); }
+  function toggleHidden(){ state.hiddenOpen = !state.hiddenOpen; render(); }
+  function closeHidden(e, t){
+    var isBtn = t && t.getAttribute && t.getAttribute('data-role')==='hiddenclose';
+    if(!isBtn && e && e.target && e.target.closest && e.target.closest('[data-stop]')) return;
+    state.hiddenOpen = false; render();
+  }
+  function applyHidden(id, on){
+    var s = find(id); if(!s) return;
+    if(on && state.selectedId===id) state.selectedId=null;
+    var stations = state.stations.map(function(x){ if(x.id===id){ var n={}; for(var k in x) n[k]=x[k]; n.hidden=!!on; return n; } return x; });
+    save(stations); state.stations = stations;
+    logEvent((on?'隱藏':'取消隱藏')+'場站（'+(s.code||id)+'）');
+    render();
+  }
+  function hideStation(id){ applyHidden(id, true); }
+  function unhideStation(id){ applyHidden(id, false); }
+  function unhideAll(){
+    var any=false;
+    var stations = state.stations.map(function(x){ if(x.hidden){ any=true; var n={}; for(var k in x) n[k]=x[k]; n.hidden=false; return n; } return x; });
+    if(any){ save(stations); state.stations=stations; logEvent('取消隱藏全部場站'); }
+    state.hiddenOpen=false; render();
+  }
   function closeLog(e, t){
     var isBtn = t && t.getAttribute && t.getAttribute('data-role')==='logclose';
     // clicking inside the modal card (data-stop) shouldn't close it
@@ -755,7 +785,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function comboCounts(){
     var c = {}; COMBOS.forEach(function(o){ c[o.key]=0; });
-    state.stations.forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
+    liveStations().forEach(function(s){ COMBOS.forEach(function(o){ if(comboMatch(s,o)) c[o.key]++; }); });
     return c;
   }
 
@@ -778,7 +808,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(range.hi - range.lo < 1e-9) return 0.5;
     return Math.max(0, Math.min(1, (v - range.lo) / (range.hi - range.lo)));
   }
-  function volumeScore(s){ return volumeScoreIn(s, paxRange(state.stations)); }
+  function volumeScore(s){ return volumeScoreIn(s, paxRange(liveStations())); }
   var AUTO_THRESHOLD = 0.5, VOL_THRESHOLD = 0.5;
   // quadrants keyed by (hiVol, hiAuto)
   var QUAD = {
@@ -860,7 +890,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // title = the combo name (the red-box heading), value = its share of all stations.
   function comboCardHTML(combo, count, total){
     var t = total || 1;
-    var matchList = state.stations.filter(function(s){ return comboMatch(s, combo); });
+    var matchList = liveStations().filter(function(s){ return comboMatch(s, combo); });
     count = matchList.length;
     var matchW = (count/t)*100;
     var restW = 100 - matchW;
@@ -988,7 +1018,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return byAutomation(a, b);
   }
   function groupList(){
-    var pool = state.stations;
+    var pool = liveStations();
     if(state.groupMode==='region'){
       var regs = REGION_ORDER.filter(function(r){ return pool.some(function(s){ return s.region===r; }); });
       pool.forEach(function(s){ if(s.region && regs.indexOf(s.region)<0) regs.push(s.region); });
@@ -1111,8 +1141,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +       '<textarea data-input="schedNote" data-id="'+sel.id+'" rows="3" class="fld" style="font-size:12.5px;line-height:1.55;resize:vertical">'+esc(sel.schedNote)+'</textarea>'
       +     '</label>'
       +   '</div>'
-      +   '<div style="padding:14px 22px;border-top:1px solid #E4EBE6;display:flex;justify-content:space-between;align-items:center">'
-      +     '<button data-action="deleteStation" data-id="'+sel.id+'" style="border:1px solid #F0C7C2;background:#FCEAE8;color:#C24626;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">刪除場站</button>'
+      +   '<div style="padding:14px 22px;border-top:1px solid #E4EBE6;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+      +     '<div style="display:flex;gap:8px">'
+      +       '<button data-action="deleteStation" data-id="'+sel.id+'" style="border:1px solid #F0C7C2;background:#FCEAE8;color:#C24626;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">刪除場站</button>'
+      +       '<button data-action="hideStation" data-id="'+sel.id+'" title="隱藏後不顯示於任何檢視，也不列入覆蓋率／地圖／矩陣計算（可於「已隱藏」管理取消）" style="border:1px solid #DDD3BC;background:#F7F5EF;color:#8A6D2E;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">隱藏場站</button>'
+      +     '</div>'
       +     '<button data-action="closePanel" style="border:none;background:#00853C;color:#fff;border-radius:20px;padding:9px 22px;font-size:13px;font-weight:700;cursor:pointer">完成</button>'
       +   '</div>'
       + '</aside>'
@@ -1326,7 +1359,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       : [{c:'#3E7CB1',t:'美洲'},{c:'#2E8B57',t:'歐洲'},{c:'#E8A400',t:'東南亞'},{c:'#C0392B',t:'東北亞'},{c:'#8E44AD',t:'大陸'},{c:'#16A085',t:'港澳'},{c:'#00853C',t:'台灣區'},{c:'#D35400',t:'紐澳'}]
     ).map(function(o){ return '<span style="display:flex;align-items:center;gap:5px;font-size:var(--map-legend-font,11px);color:#6E787B"><span style="flex:none;width:.9em;height:.9em;border-radius:50%;background:'+o.c+'"></span>'+o.t+'</span>'; }).join('');
 
-    var nShown = filteredStations().length, nTot = state.stations.length;
+    var nShown = filteredStations().length, nTot = liveStations().length;
     return '<section id="map-export" style="--map-legend-font:'+state.mapLegendFont+'px;flex:1;min-width:0;background:#fff;border:1px solid #DFE3E4;border-radius:12px;padding:16px 18px">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">'
       +   '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div style="font-size:16px;font-weight:900;color:#00853C">全球場站自動化設備概況</div>'
@@ -1559,13 +1592,14 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   function render(){
     hideTip();
-    var stationCount = state.stations.length;
-    var dataDate = '2026·05';
-    // default coverage cards (per-stage) computed over all納管場站
+    var live = liveStations();
+    var stationCount = live.length;
+    var nHidden = state.stations.length - stationCount;
+    // default coverage cards (per-stage) computed over all live 納管場站
     var stages = [
-      stage(state.stations,1,'CUSS','列印行李條 (CUSS Lite) / 列印登機證 & 自助報到 (預設關閉，依需求開啟)','cuss'),
-      stage(state.stations,2,'SBD','自助行李託運','sbd'),
-      stage(state.stations,3,'SBG','自助登機門 / 生物辨識','sbg')
+      stage(live,1,'CUSS','列印行李條 (CUSS Lite) / 列印登機證 & 自助報到 (預設關閉，依需求開啟)','cuss'),
+      stage(live,2,'SBD','自助行李託運','sbd'),
+      stage(live,3,'SBG','自助登機門 / 生物辨識','sbg')
     ];
     // when combos are selected, replace the stage cards with one card per selected
     // combo — each titled by the combo name (CUSS+SBD+SBG, CUSS+SBD, …).
@@ -1669,7 +1703,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<div style="width:1px;height:40px;background:#DFE3E4;flex:none"></div>'
       +     '<div style="display:flex;flex-direction:column;gap:3px">'
       +       '<div style="font-size:20px;font-weight:900;color:#00853C;letter-spacing:.5px">機場自助化設備建置儀表板</div>'
-      +       '<div style="font-size:12px;color:#6E787B">旅客自助旅程 · CUSS｜SBD｜SBG設備覆蓋 &nbsp;|&nbsp; 全球 '+stationCount+' 個納管場站 &nbsp;|&nbsp; 資料基準 '+dataDate+'</div>'
+      +       '<div style="font-size:12px;color:#6E787B">旅客自助旅程 · CUSS｜SBD｜SBG設備覆蓋 &nbsp;|&nbsp; 全球 '+stationCount+' 個納管場站'+(nHidden?'（另有 '+nHidden+' 站已隱藏）':'')+'</div>'
       +     '</div>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
@@ -1682,16 +1716,50 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       +     '<button data-action="exportCSV" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">匯出 CSV</button>'
       +     '<button data-action="saveAsHTML" title="另存為可獨立開啟的 HTML 快照（內含目前資料與更新紀錄）" style="border:1.5px solid #00853C;background:#00853C;color:#fff;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">另存新檔</button>'
       +     '<button data-action="toggleLog" title="檢視資料更新紀錄日誌" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">更新紀錄</button>'
+      +     (nHidden ? '<button data-action="toggleHidden" title="管理已隱藏場站" style="border:1.5px solid #C2AC7E;background:#fff;color:#8A6D2E;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">已隱藏 '+nHidden+'</button>' : '')
       +     '<button data-action="resetData" title="還原為本次開啟檔案時、尚未更新前的狀態（非原始資料庫）" style="border:1.5px solid #E4EBE6;background:#fff;color:#515A5D;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">重設</button>'
       +   '</div>'
       + '</header>'
       + '<div style="padding:6px 26px 0;font-size:11.5px;color:#8A938F">'+hint+'</div>'
-      + '<div style="flex:1;padding:16px 26px 30px">'+body+'</div>'
+      + '<div style="flex:1;padding:16px 26px 46px">'+body+'</div>'
       + '</div>'
+      + '<div style="position:fixed;right:14px;bottom:9px;z-index:6;pointer-events:none;font-size:11px;color:#8A938F;background:rgba(255,255,255,.82);border:1px solid #E4EBE6;border-radius:8px;padding:3px 9px">資料最後更新：'+esc(lastUpdatedLabel())+'</div>'
       + (sel ? panelHTML(sel) : '')
-      + (state.logOpen ? logModalHTML() : '');
+      + (state.logOpen ? logModalHTML() : '')
+      + (state.hiddenOpen ? hiddenModalHTML() : '');
 
     document.getElementById('app').innerHTML = html;
+  }
+  function lastUpdatedLabel(){
+    if(state.lastUpdatedStr) return state.lastUpdatedStr;
+    if(state.lastUpdated) return stampShort(new Date(state.lastUpdated));
+    return '尚未更新';
+  }
+  // ---- hidden-stations manager ----
+  function hiddenModalHTML(){
+    var list = hiddenStations();
+    var rows = list.length
+      ? '<div style="display:flex;flex-wrap:wrap;gap:8px">' + list.map(function(s){
+          return '<span style="display:flex;align-items:center;gap:8px;border:1px solid #E4EBE6;border-radius:9px;padding:6px 8px 6px 11px;background:#F7F5EF">'
+            + '<span style="font-size:13px;font-weight:800;color:#5C4A1E;letter-spacing:.5px">'+esc(s.code)+'</span>'
+            + '<span style="font-size:10.5px;color:#9A8A5E">'+esc(s.region||'')+'</span>'
+            + '<button data-action="unhideStation" data-id="'+s.id+'" style="border:1px solid #C7CDCF;background:#fff;color:#00853C;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">取消隱藏</button>'
+            + '</span>';
+        }).join('') + '</div>'
+      : '<div style="padding:22px 4px;text-align:center;color:#9AA3A0;font-size:12.5px">目前沒有已隱藏的場站。於場站編輯面板點「隱藏場站」即可隱藏。</div>';
+    return '<div data-action="closeHidden" style="position:fixed;inset:0;background:rgba(20,32,26,.42);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:64px 16px">'
+      + '<div data-stop="1" style="width:640px;max-width:100%;max-height:80vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(15,30,22,.32);overflow:hidden">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #E4EBE6">'
+      +     '<div><div style="font-size:16px;font-weight:900;color:#00853C">已隱藏場站</div>'
+      +       '<div style="font-size:11px;color:#6E787B;margin-top:2px">共 '+list.length+' 站　·　隱藏場站不顯示於任何檢視，也不列入覆蓋率、地圖與矩陣計算</div></div>'
+      +     '<div style="display:flex;gap:8px">'
+      +       (list.length ? '<button data-action="unhideAll" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">全部取消隱藏</button>' : '')
+      +       '<button data-action="closeHidden" data-role="hiddenclose" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:12px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">關閉</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div style="flex:1;min-height:0;overflow:auto;padding:14px 20px 18px">'+rows+'</div>'
+      + '</div>'
+      + '</div>';
   }
 
   // ---- update-log modal ----
@@ -1795,6 +1863,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       case 'toggleLog': toggleLog(); break;
       case 'closeLog': closeLog(e, t); break;
       case 'clearLog': clearLog(); break;
+      case 'toggleHidden': toggleHidden(); break;
+      case 'closeHidden': closeHidden(e, t); break;
+      case 'hideStation': hideStation(id); break;
+      case 'unhideStation': unhideStation(id); break;
+      case 'unhideAll': unhideAll(); break;
       case 'exportJSON': exportJSON(); break;
       case 'exportCSV': exportCSV(); break;
       case 'resetData': resetData(); break;
@@ -1889,7 +1962,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
 
   document.addEventListener('keydown', function(e){
-    if(e.key==='Escape'){ if(state.logOpen){ state.logOpen=false; render(); } else if(state.pickerOpen){ state.pickerOpen=false; render(); } else if(state.selectedId!=null) closePanel(); }
+    if(e.key==='Escape'){ if(state.hiddenOpen){ state.hiddenOpen=false; render(); } else if(state.logOpen){ state.logOpen=false; render(); } else if(state.pickerOpen){ state.pickerOpen=false; render(); } else if(state.selectedId!=null) closePanel(); }
   });
 
   // ---- dot size slider ----
