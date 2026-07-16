@@ -194,7 +194,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   var state = { stations: load(), selectedId: null, quickMode: false, groupMode: 'phase',
                 view: 'board', mapTheme: 'light', mapPalette: 'region', dotColor: 'cuss',
-                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapZoom: 1, mapPlateOffsets: {}, mapPlateLayout: null, mapAnimationFrame: null, mapAnimToken: 0, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
+                showKpiRing: true, showNames: false, dotScale: 1, mapNameScale: 1, mapLegendFont: 11, mapZoom: 1, mapPlateOffsets: {}, mapPlateLayout: null, mapAnimationFrame: null, mapBaseOpacity: 1, mapAnimToken: 0, mapVB: { x:0, y:12, w:1000, h:408 }, mapFit: true, mapBounds: null, mapAnim: false,
                 comboSel: [], comboOpen: false,
                 chipFont: 15, legendFont: 11, legendShowShape: true, showKpiBoard: true,
                 filters: { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} },
@@ -518,7 +518,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return String(v==null?'':v).replace(/^[\s\r\n]*[●○▲△Xx✕╳]/,'').replace(/[\r\n]+/g,'').replace(/\s*\/\s*/g,'/').replace(/\*/g,'').trim();
   }
   function truthy(v){ return /^(是|有|y|yes|true|v|✓|1|●|kpi)$/i.test(String(v==null?'':v).trim()); }
-  function normRegion(v){ v=String(v).replace(/\s/g,''); return v==='台灣'?'台灣區':v; }
+  function normRegion(v){
+    v=String(v).replace(/\s/g,'');
+    if(/^(台灣|台湾|台湾区)$/.test(v)) return '台灣區';
+    if(/^(中國|中国|中國大陸|中国大陆|大陆)$/.test(v)) return '大陸';
+    return v;
+  }
+  function isRegionValue(v){
+    v=String(v==null?'':v).replace(/\s/g,'');
+    return REGION_ORDER.indexOf(normRegion(v))>=0 || /^(中國|中国|中國大陸|中国大陆|大陆|日本|韓國|韩国|南韓|南韩|南亞|南亚|美國|美国|加拿大|西歐|西欧|南歐|南欧|澳洲|大洋洲)$/.test(v);
+  }
 
   // minimal RFC-4180 CSV parser (handles quotes, commas, CRLF, BOM)
   function parseCSV(text){
@@ -604,7 +613,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function detectRegionCol(arr, from){
     var counts={};
-    for(var r=from;r<arr.length;r++){ var row=arr[r]||[]; for(var j=0;j<row.length;j++){ var v=String(row[j]==null?'':row[j]).replace(/\s/g,''); if(REGION_ORDER.indexOf(v)>=0 || v==='台灣') counts[j]=(counts[j]||0)+1; } }
+    for(var r=from;r<arr.length;r++){ var row=arr[r]||[]; for(var j=0;j<row.length;j++){ var v=String(row[j]==null?'':row[j]).replace(/\s/g,''); if(isRegionValue(v)) counts[j]=(counts[j]||0)+1; } }
     var best=-1,bn=0; for(var k in counts){ if(counts[k]>bn){ bn=counts[k]; best=+k; } } return best;
   }
   // parse the original EVA Excel workbooks (綜整 status sheet + CUSS 排程 sheet),
@@ -635,7 +644,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var carryRegion='', carryPhase='';
       for(var r=hRow+1;r<arr.length;r++){
         var row=arr[r]||[];
-        if(regionCol>=0){ var rv=String(row[regionCol]==null?'':row[regionCol]).replace(/\s/g,''); if(rv && (REGION_ORDER.indexOf(rv)>=0||rv==='台灣')) carryRegion=normRegion(rv); }
+        if(regionCol>=0){ var rv=String(row[regionCol]==null?'':row[regionCol]).replace(/\s/g,''); if(rv && isRegionValue(rv)) carryRegion=normRegion(rv); }
         if(cPhase>=0){ var pv=String(row[cPhase]==null?'':row[cPhase]).replace(/\s/g,''); if(pv) carryPhase=pv; }
         var rawc = codeCol>=0 ? String(row[codeCol]==null?'':row[codeCol]).trim() : '';
         if(!CODE_STAR_RE.test(rawc) || STOP_CODE[rawc.replace('*','').toUpperCase()]){
@@ -1269,9 +1278,61 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     }
     STATION_PLATE_CACHE[key]=chosen; return chosen;
   }
+  // Movement groups are driven by the station's region setting first. Broad
+  // legacy regions are subdivided by airport code only where the setting itself
+  // is ambiguous (Americas, Europe and Northeast Asia).
+  var PLATE_GROUPS=[
+    {id:'canada',label:'加拿大',codes:['YYZ','YVR']},
+    {id:'usa',label:'美國',codes:['ORD','DFW','IAH','LAX','JFK','SEA','SFO','IAD']},
+    {id:'western_europe',label:'西歐',codes:['LHR','AMS','CDG','MUC']},
+    {id:'southern_europe',label:'南歐',codes:['MXP','VIE']},
+    {id:'south_asia',label:'南亞',codes:['DEL']},
+    {id:'southeast_asia',label:'東南亞',codes:['DPS','CGK','KTI','KUL','CEB','CRK','MNL','SIN','BKK','CNX','DAD','HAN','SGN']},
+    {id:'china',label:'中國大陸',codes:['PEK','CAN','TFU','HGH','PVG','SHA','SZX','XMN','HKG','MFM']},
+    {id:'taiwan',label:'台灣',codes:['KHH','TPE','TSA']},
+    {id:'korea',label:'韓國',codes:['PUS','GMP','ICN']},
+    {id:'japan',label:'日本',codes:['AOJ','FUK','KMQ','MYJ','OKA','KIX','UKB','SDJ','CTS','HND','NRT']},
+    {id:'oceania',label:'大洋洲',codes:['BNE']}
+  ];
+  var PLATE_GROUP_BY_ID={},PLATE_GROUP_BY_CODE={},MAP_GROUP_PIECES=null;
+  PLATE_GROUPS.forEach(function(g){PLATE_GROUP_BY_ID[g.id]=g;g.codes.forEach(function(c){PLATE_GROUP_BY_CODE[c]=g;});});
+  function normalizedRegion(v){return String(v||'').replace(/\s/g,'').toLowerCase();}
+  function stationPlateGroup(s,geoPiece){
+    var r=normalizedRegion(s.region),code=String(s.code||'').toUpperCase(),id='';
+    if(/^(中國|中国|大陸|大陆|中國大陸|中国大陆|港澳)$/.test(r)) id='china';
+    else if(/^(台灣|台湾|台灣區|台湾区)$/.test(r)) id='taiwan';
+    else if(/^(日本)$/.test(r)) id='japan';
+    else if(/^(韓國|韩国|南韓|南韩)$/.test(r)) id='korea';
+    else if(/^(南亞|南亚)$/.test(r)) id='south_asia';
+    else if(/^(東南亞|东南亚)$/.test(r)) id='southeast_asia';
+    else if(/^(紐澳|纽澳|澳紐|澳纽|澳洲|大洋洲)$/.test(r)) id='oceania';
+    else if(/^(美國|美国|usa|us)$/.test(r)) id='usa';
+    else if(/^(加拿大|canada)$/.test(r)) id='canada';
+    else if(/^(西歐|西欧|westerneurope)$/.test(r)) id='western_europe';
+    else if(/^(南歐|南欧|southerneurope)$/.test(r)) id='southern_europe';
+    else if(r==='美洲') id=(code==='YYZ'||code==='YVR')?'canada':'usa';
+    else if(r==='歐洲'||r==='欧洲') id=(code==='MXP'||code==='VIE')?'southern_europe':'western_europe';
+    else if(r==='東北亞'||r==='东北亚') id=(code==='PUS'||code==='GMP'||code==='ICN')?'korea':'japan';
+    if(!id&&PLATE_GROUP_BY_CODE[code]) id=PLATE_GROUP_BY_CODE[code].id;
+    if(id) return PLATE_GROUP_BY_ID[id];
+    return{id:'geo:'+(geoPiece?geoPiece.id:(s.id||code)),label:s.region||'其他場站',codes:[code],fallback:true};
+  }
+  function getPlateGroupPieces(pieces){
+    if(MAP_GROUP_PIECES) return MAP_GROUP_PIECES;
+    var byId={};pieces.forEach(function(p){byId[p.id]=p;});MAP_GROUP_PIECES={};
+    PLATE_GROUPS.forEach(function(group){
+      var seen={},list=[];
+      group.codes.forEach(function(code){
+        var g=GEO[code];if(!g) return;var p=mproj(g.lat,g.lon),piece=stationMapPiece(code,p,pieces);
+        if(piece&&!seen[piece.id]){seen[piece.id]=true;list.push(byId[piece.id]);}
+      });
+      MAP_GROUP_PIECES[group.id]=list;
+    });
+    return MAP_GROUP_PIECES;
+  }
   // Compact long inter-region gaps, then resolve only actual station-circle
-  // collisions between plates. The collision threshold grows with zoom, so the
-  // white-line cuts lift gradually instead of jumping apart at the first step.
+  // collisions between plates. A global geographic de-collision supplies a clean
+  // starting frame; plates repel only when later compression would overlap them.
   // Every station on a plate shares one translation, preserving its local map.
   function layoutStationPlates(nodes,zoom){
     var raw=Math.max(0,Math.min(1,((zoom||1)-1)/3));
@@ -1296,7 +1357,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             var ax=ma.x+a.fx-a.cx,ay=ma.y+a.fy-a.cy;
             var bx=mb.x+b.fx-b.cx,by=mb.y+b.fy-b.cy;
             var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy);
-            var min=(ma.R+mb.R+1.4)*t;
+            var min=ma.R+mb.R+1.4;
             if(d<min){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
               var push=(min-d)*.26,ux=dx/d,uy=dy/d;
@@ -1306,8 +1367,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         }
         nodes.forEach(function(n){n.fx+=(n.tx-n.fx)*.045;n.fy+=(n.ty-n.fy)*.045;});
       }
-      // Finish at full zoom without any cross-plate station overlap. At lower
-      // zoom the proportional threshold produces a continuous lift animation.
+      // Finish every active zoom step without any cross-plate station overlap.
       for(it=0;it<280;it++){
         var moved=false;
         for(i=0;i<nodes.length;i++)for(j=i+1;j<nodes.length;j++){
@@ -1317,7 +1377,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             ax=ma.x+a.fx-a.cx;ay=ma.y+a.fy-a.cy;
             bx=mb.x+b.fx-b.cx;by=mb.y+b.fy-b.cy;
             dx=ax-bx;dy=ay-by;d=Math.sqrt(dx*dx+dy*dy);
-            min=(ma.R+mb.R+1.4)*t;
+            min=ma.R+mb.R+1.4;
             if(d<min-.01){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
               push=(min-d)*.5+.01;ux=dx/d;uy=dy/d;
@@ -1384,8 +1444,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       mnx=Math.min(mnx,x-vr);mxx=Math.max(mxx,x+vr);mny=Math.min(mny,y-vr);mxy=Math.max(mxy,y+vr);
     });
     nodes.forEach(function(n){
-      if(!n.piece) return; var o=offsets[n.id]||{dx:0,dy:0},b=n.piece.box;
-      mnx=Math.min(mnx,b.x0+o.dx);mxx=Math.max(mxx,b.x1+o.dx);mny=Math.min(mny,b.y0+o.dy);mxy=Math.max(mxy,b.y1+o.dy);
+      var o=offsets[n.id]||{dx:0,dy:0};
+      (n.pieces||[]).forEach(function(piece){var b=piece.box;mnx=Math.min(mnx,b.x0+o.dx);mxx=Math.max(mxx,b.x1+o.dx);mny=Math.min(mny,b.y0+o.dy);mxy=Math.max(mxy,b.y1+o.dy);});
     });
     var mgx=names?42:18,mgy=names?34:16;
     return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:(mxx-mnx)+2*mgx,h:(mxy-mny)+2*mgy});
@@ -1446,13 +1506,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // to each dot's true geographic point — dense regions fan out, isolated dots
   // stay put, and nothing overlaps.
   function spreadDots(items, box){
-    var N=items.length, pad=1.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy;
+    var N=items.length, pad=1.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
     // phase 1: collide + weak spring to home (positions dots near geography)
     for(var it=0; it<110; it++){
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
         dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
-        if(d<min){ push=(min-d)/2; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; }
+        if(d<min){
+          push=(min-d)/2;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;
+        }
       }
       for(k=0;k<N;k++){ a=items[k]; a.x+=(a.tx-a.x)*0.05; a.y+=(a.ty-a.y)*0.05; }
     }
@@ -1462,7 +1526,34 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         a=items[i]; b=items[j];
         dx=a.x-b.x; dy=a.y-b.y; d=Math.sqrt(dx*dx+dy*dy)||0.01; min=a.R+b.R+pad;
-        if(d<min){ push=(min-d)/2+0.02; ux=dx/d; uy=dy/d; a.x+=ux*push; a.y+=uy*push; b.x-=ux*push; b.y-=uy*push; moved=true; }
+        if(d<min){
+          push=(min-d)/2+0.02;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;moved=true;
+        }
+      }
+      if(!moved) break;
+    }
+    // Restore meaningful east/west and north/south ordering inside each region
+    // group, alternating with collision resolution until both constraints hold.
+    // This prevents dense clusters from swapping sides of the real geography.
+    for(it=0;it<420;it++){
+      moved=false;
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i];b=items[j];if(a.plateId!==b.plateId) continue;
+        var gx=a.tx-b.tx,gy=a.ty-b.ty,fix;
+        if(gx>6&&a.x<=b.x+.2){fix=(b.x+.2-a.x)/2+.01;a.x+=fix;b.x-=fix;moved=true;}
+        else if(gx<-6&&a.x>=b.x-.2){fix=(a.x+.2-b.x)/2+.01;a.x-=fix;b.x+=fix;moved=true;}
+        if(gy>6&&a.y<=b.y+.2){fix=(b.y+.2-a.y)/2+.01;a.y+=fix;b.y-=fix;moved=true;}
+        else if(gy<-6&&a.y>=b.y-.2){fix=(a.y+.2-b.y)/2+.01;a.y-=fix;b.y+=fix;moved=true;}
+      }
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        a=items[i];b=items[j];dx=a.x-b.x;dy=a.y-b.y;d=Math.sqrt(dx*dx+dy*dy)||.01;min=a.R+b.R+pad;
+        if(d<min-.01){
+          push=(min-d)/2+.01;hx=a.tx-b.tx;hy=a.ty-b.ty;hd=Math.sqrt(hx*hx+hy*hy);
+          if(hd>.08){ux=hx/hd;uy=hy/hd;}else{ux=dx/d;uy=dy/d;}
+          a.x+=ux*push;a.y+=uy*push;b.x-=ux*push;b.y-=uy*push;moved=true;
+        }
       }
       if(!moved) break;
     }
@@ -1503,39 +1594,51 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var dotStroke=state.mapTheme==='dark'?'#0E1417':'#fff';
     var leadStroke=state.mapTheme==='dark'?'#6C7A72':'#8A968F';
     var sc=state.dotScale,names=state.showNames,twoTone=state.dotColor==='cuss';
-    var cussFrac=names?0.70:0.56,pieces=getMapPieces();
+    var cussFrac=names?0.70:0.56,pieces=getMapPieces(),groupPieces=getPlateGroupPieces(pieces);
 
-    // Resolve each station to the smallest enclosing original white-line subpath.
-    // Coastal points fall back to the nearest white boundary.
+    // Keep the real geographic point, but derive motion ownership from the
+    // station region. Geometry is only the fallback and the land-shape source.
     var pool=visible.filter(function(s){return GEO[s.code]||(s.lat!=null);}).map(function(s){
-      var g=GEO[s.code]||{lat:+s.lat,lon:+s.lon},p=mproj(g.lat,g.lon),piece=stationMapPiece(s.code,p,pieces);
-      return {s:s,plateId:piece?piece.id:'station:'+s.id,piece:piece,tx:p.x,ty:p.y,x:p.x,y:p.y,R:baseDotRadius(s)*sc};
+      var g=GEO[s.code]||{lat:+s.lat,lon:+s.lon},p=mproj(g.lat,g.lon),piece=stationMapPiece(s.code,p,pieces),group=stationPlateGroup(s,piece);
+      return {s:s,plateId:group.id,plateLabel:group.label,group:group,geoPiece:piece,tx:p.x,ty:p.y,x:p.x,y:p.y,R:baseDotRadius(s)*sc};
     });
+    // Resolve circles once in true global geography. Subsequent zoom movement is
+    // rigid per region group, so their settled relative positions stay unchanged.
+    spreadDots(pool);
     var grouped={};
-    pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,piece:m.piece,items:[]};grouped[m.plateId].items.push(m);});
-    Object.keys(grouped).forEach(function(id){spreadDots(grouped[id].items);});
+    pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,label:m.plateLabel,group:m.group,items:[]};grouped[m.plateId].items.push(m);});
 
     var nodes=Object.keys(grouped).map(function(id){
       var g=grouped[id],x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,maxR=0;
       g.items.forEach(function(m){x0=Math.min(x0,m.x);x1=Math.max(x1,m.x);y0=Math.min(y0,m.y);y1=Math.max(y1,m.y);maxR=Math.max(maxR,m.R);});
-      return {id:id,piece:g.piece,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
+      var land=(groupPieces[id]||[]).slice();
+      if(!land.length){var seen={};g.items.forEach(function(m){if(m.geoPiece&&!seen[m.geoPiece.id]){seen[m.geoPiece.id]=true;land.push(m.geoPiece);}});}
+      return {id:id,label:g.label,pieces:land,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
     });
+    // A white-line path has one owner even if future custom aliases collide.
+    var pieceOwner={};
+    nodes.forEach(function(n){n.pieces=n.pieces.filter(function(piece){if(pieceOwner[piece.id]) return false;pieceOwner[piece.id]=n.id;return true;});});
     var previous=state.mapPlateOffsets||{},offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
     pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0};m.dx=o.dx;m.dy=o.dy;m.fx=m.x+o.dx;m.fy=m.y+o.dy;});
 
-    // Remove occupied pieces from the base layer, then draw those exact paths as
-    // translated plates. Their original country/region white outlines are the cuts.
+    // Remove active region pieces from the background, then draw their exact
+    // original paths as one rigid group. All non-moving land fades with zoom.
     var occupied={},baseLand='',plateLand='';
-    nodes.forEach(function(n){occupied[n.id]=true;});
+    nodes.forEach(function(n){n.pieces.forEach(function(piece){occupied[piece.id]=true;});});
     pieces.forEach(function(piece){
       if(!occupied[piece.id]) baseLand+='<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="0.6"/>';
     });
     var lifted=(state.mapZoom||1)>1.001;
     nodes.forEach(function(n){
-      if(!n.piece) return;
       var motion=plateMotion(n.id,offsets[n.id],previous,animate);
-      plateLand+=motion.open+'<path d="'+n.piece.d+'" fill="'+continentFill(n.piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"'+(lifted?' filter="url(#plateLift)"':'')+'/>'+motion.close;
+      var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"/>';}).join('');
+      plateLand+=motion.open+'<g data-plate-group="'+n.id+'" data-plate-label="'+esc(n.label)+'"'+(lifted&&land?' filter="url(#plateLift)"':'')+'>'+land+'</g>'+motion.close;
     });
+    var zoomRaw=Math.max(0,Math.min(1,((state.mapZoom||1)-1)/3)),fadeT=zoomRaw*zoomRaw*(3-2*zoomRaw);
+    var baseOpacity=pool.length?1-.88*fadeT:1,oldBase=state.mapBaseOpacity==null?1:state.mapBaseOpacity,baseFade='';
+    if(animate&&Math.abs(baseOpacity-oldBase)>.005) baseFade='<animate attributeName="opacity" from="'+oldBase.toFixed(3)+'" to="'+baseOpacity.toFixed(3)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    var baseLayer='<g data-map-layer="background" opacity="'+baseOpacity.toFixed(3)+'">'+baseFade+baseLand+'</g>';
+    state.mapBaseOpacity=baseOpacity;
 
     // Frame every full moved plate and every complete station circle. During a
     // transition the old and new frames are both retained, so no intermediate
@@ -1544,11 +1647,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
     var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
     state.mapBounds=finalFrame;
-    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R,plateId:m.plateId,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
+    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R,plateId:m.plateId,plateLabel:m.plateLabel,region:m.s.region,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
     state.mapVB={x:state.mapBounds.x,y:state.mapBounds.y,w:state.mapBounds.w,h:state.mapBounds.h};
     state.mapFit=true;
     state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame};
-    state.mapPlateLayout={zoom:state.mapZoom||1,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0};return{id:n.id,dx:o.dx,dy:o.dy,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
+    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0};return{id:n.id,label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
 
     var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
     var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#10251B" flood-opacity=".34"/></filter>';
@@ -1592,7 +1695,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var animToken=++state.mapAnimToken;
     if(animate) setTimeout(function(){if(state.mapAnimToken===animToken&&state.view==='map') render();},520);
     state.mapAnim=false;
-    return '<svg id="worldmap"'+animClass+' viewBox="'+vbText(shown)+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:pan-y;cursor:default" xmlns="http://www.w3.org/2000/svg"><defs>'+defs+'</defs>'+viewMotion+baseLand+plateLand+overlays+'</svg>';
+    return '<svg id="worldmap"'+animClass+' viewBox="'+vbText(shown)+'" preserveAspectRatio="xMidYMid meet" width="100%" style="display:block;background:'+ocean+';border-radius:10px;touch-action:pan-y;cursor:default" xmlns="http://www.w3.org/2000/svg"><defs>'+defs+'</defs>'+viewMotion+baseLayer+plateLand+overlays+'</svg>';
   }
 
   function mapPanelHTML(){
@@ -1752,8 +1855,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
       +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.8" title="沿原始白線切出含場站區域並加強板塊位移" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
-      +     '<button data-action="zoomMap" data-k="1.25" title="減少板塊位移並回到原始相對地理位置" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +     '<button data-action="zoomMap" data-k="0.8" title="依場站區域沿原始白線移動板塊，並淡出其餘底圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="1.25" title="減少板塊位移與淡出，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
       +   '</div>'
