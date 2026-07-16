@@ -1356,17 +1356,20 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       n.items.forEach(function(q){var r=q.R||0;m.x0=Math.min(m.x0,q.x-r);m.y0=Math.min(m.y0,q.y-r);m.x1=Math.max(m.x1,q.x+r);m.y1=Math.max(m.y1,q.y+r);});
     });
     var near={
-      americas:{x:mapCx-BASE_VB.w*.14,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.22},
-      asia:{x:mapCx+BASE_VB.w*.14,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.22}
+      americas:{x:mapCx-BASE_VB.w*.10,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.14},
+      asia:{x:mapCx+BASE_VB.w*.10,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.14}
     };
     var far={
-      americas:{x:mapCx-BASE_VB.w*.27,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.29},
-      asia:{x:mapCx+BASE_VB.w*.27,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.29}
+      americas:{x:mapCx-BASE_VB.w*.18,y:mapCy},europe:{x:mapCx,y:mapCy-BASE_VB.h*.20},
+      asia:{x:mapCx+BASE_VB.w*.18,y:mapCy},oceania:{x:mapCx,y:mapCy+BASE_VB.h*.20}
     };
     var macroList=Object.keys(macros).map(function(id){
       var m=macros[id];
       if(m.x0===Infinity){m.x0=m.x1=m.nodes[0].cx;m.y0=m.y1=m.nodes[0].cy;}
-      m.cx=(m.x0+m.x1)/2;m.cy=(m.y0+m.y1)/2;m.scale=1+.32*expand;
+      // Forty percent of the available enlargement happens while the blocks
+      // gather; the remaining sixty percent accompanies the outward extension.
+      // Both phases meet with zero slope, so scale and translation stay smooth.
+      m.cx=(m.x0+m.x1)/2;m.cy=(m.y0+m.y1)/2;m.scale=1+.32*(.4*gather+.6*expand);
       m.fx=m.cx+(near[id].x-m.cx)*gather+(far[id].x-near[id].x)*expand;
       m.fy=m.cy+(near[id].y-m.cy)*gather+(far[id].y-near[id].y)*expand;
       return m;
@@ -1393,22 +1396,27 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             var pa=pointOn(a,a.items[ai]),pb=pointOn(b,b.items[bi]),dx=pa.x-pb.x,dy=pa.y-pb.y,d=Math.sqrt(dx*dx+dy*dy)||.01,min=pa.r+pb.r+4;
             if(d<min) worst=Math.max(worst,min-d);
           }
-          var ba=macroBox(a),bb=macroBox(b),ox=Math.min(ba.x1,bb.x1)-Math.max(ba.x0,bb.x0),oy=Math.min(ba.y1,bb.y1)-Math.max(ba.y0,bb.y0);
-          if(ox>0&&oy>0) worst=Math.max(worst,Math.min(ox,oy)+2);
           if(worst>0){pushOut(a,b,worst*.55);moved=true;}
         }
         if(!moved) break;
       }
     }
-    // At maximum zoom, match the content envelope to the ViewBox aspect ratio.
-    // The correction only extends the existing four arms, so it cannot reverse
-    // the requested top/right/bottom/left ordering.
+    // At maximum zoom, match the content envelope to the ViewBox aspect ratio
+    // without reopening the centre: horizontal shortage extends the left/right
+    // arms; vertical shortage is absorbed by the tall America/Asia silhouettes.
     if(expand>0&&macros.americas&&macros.europe&&macros.asia&&macros.oceania){
       var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
       macroList.forEach(function(m){var b=macroBox(m);x0=Math.min(x0,b.x0);y0=Math.min(y0,b.y0);x1=Math.max(x1,b.x1);y1=Math.max(y1,b.y1);});
       var w=x1-x0+36,h=y1-y0+32,want=BASE_VB.w/BASE_VB.h,have=w/h;
       if(have<want){var addX=(want*h-w)*.5*expand;macros.americas.fx-=addX;macros.asia.fx+=addX;}
-      else {var addY=(w/want-h)*.5*expand;macros.europe.fy-=addY;macros.oceania.fy+=addY;}
+      else {
+        // Keep the central top/bottom blocks close. Use the naturally tall
+        // America and Asia blocks to supply the extra outer height required by
+        // the wide ViewBox instead of reopening a large empty centre rectangle.
+        var needH=(w/want-h)*expand,ab=macroBox(macros.americas),sb=macroBox(macros.asia);
+        macros.americas.fy-=Math.max(0,ab.y0-(y0-needH*.5));
+        macros.asia.fy+=Math.max(0,(y1+needH*.5)-sb.y1);
+      }
     }
     nodes.forEach(function(n){
       var m=macros[n.macroId],fx=m.fx+(n.cx-m.cx)*m.scale,fy=m.fy+(n.cy-m.cy)*m.scale;
