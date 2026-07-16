@@ -292,21 +292,47 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     else { var nw=h*asp, cx=(nx0+nx1)/2; nx0=cx-nw/2; nx1=cx+nw/2; }
     return { x:nx0, y:ny0, w:nx1-nx0, h:ny1-ny0 };
   }
+  function wholeCirclesFit(vb){
+    var pool = state.mapPool; if(!pool || !pool.length) return true;
+    var x0=vb.x, y0=vb.y, x1=vb.x+vb.w, y1=vb.y+vb.h;
+    for(var i=0;i<pool.length;i++){
+      var m=pool[i];
+      if(m.x>=x0 && m.x<=x1 && m.y>=y0 && m.y<=y1){
+        var pad=m.R+2;
+        if(m.x-pad<x0 || m.x+pad>x1 || m.y-pad<y0 || m.y+pad>y1) return false;
+      }
+    }
+    return true;
+  }
+  // Clamping can translate a snapped viewBox and bring another circle centre into
+  // the frame. Alternate the two operations until every newly-visible circle is
+  // whole; fall back to the full fit if an unusual layout cannot converge.
+  function constrainMapVB(vb){
+    var pool=state.mapPool, limit=(pool&&pool.length?pool.length:0)+2;
+    for(var i=0;i<limit;i++){
+      vb=clampVB(vb);
+      vb=clampVB(snapWholeCircles(vb));
+      if(wholeCirclesFit(vb)) return vb;
+    }
+    var b=state.mapBounds;
+    return b ? {x:b.x,y:b.y,w:b.w,h:b.h} : vb;
+  }
   function zoomMap(k){
     var vb = state.mapVB;
     state.mapFit = false;                    // manual zoom takes over from auto-fit
     var cx = vb.x + vb.w/2, cy = vb.y + vb.h/2;
     var nw = Math.max(120, Math.min(2200, vb.w*k));
     var nh = nw*(vb.h/vb.w);
-    state.mapVB = clampVB(snapWholeCircles({ x:cx - nw/2, y:cy - nh/2, w:nw, h:nh }));
+    state.mapVB = constrainMapVB({ x:cx - nw/2, y:cy - nh/2, w:nw, h:nh });
     render();
   }
   function resetMapView(){ state.mapFit = true; state.dotScale = 1; state.mapAnim = true; render(); }
   // restore map auto-fit, circle size and station-name font size to defaults
   function resetMapDefaults(){ state.mapFit = true; state.dotScale = 1; state.mapNameScale = 1; state.mapLegendFont = 11; state.mapAnim = true; render(); }
   function applyMapVB(){ var svg = document.getElementById('worldmap'); if(svg){ var v=state.mapVB; svg.setAttribute('viewBox', v.x+' '+v.y+' '+v.w+' '+v.h); } }
-  function setFilter(k, v){ state.filters[k] = v; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
-  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; if(state.view==='map' && state.mapFit) state.mapAnim = true; render(); }
+  function refitMapAfterFilter(){ if(state.view==='map'){ state.mapFit=true; state.mapAnim=true; } }
+  function setFilter(k, v){ state.filters[k] = v; refitMapAfterFilter(); render(); }
+  function clearFilters(){ state.filters = { region:'all', cuss:'all', sbd:'all', sbg:'all', kpi:'all', excluded:{} }; refitMapAfterFilter(); render(); }
   function togglePicker(){ state.pickerOpen = !state.pickerOpen; render(); }
   function toggleLog(){ state.logOpen = !state.logOpen; render(); }
   function toggleHidden(){ state.hiddenOpen = !state.hiddenOpen; render(); }
@@ -351,11 +377,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     logEvent('更新紀錄由人事代號 '+id+' 清除（清除 '+n+' 筆）');
     render();
   }
-  function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; render(); }
+  function toggleExclude(id){ var e=state.filters.excluded; if(e[id]) delete e[id]; else e[id]=true; refitMapAfterFilter(); render(); }
   function setAllExcluded(on){
     var e = {};
     if(on){ state.stations.forEach(function(s){ e[s.id]=true; }); }
-    state.filters.excluded = e; render();
+    state.filters.excluded = e; refitMapAfterFilter(); render();
   }
 
   function addStation(){
@@ -1349,10 +1375,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       // extra room for station-name labels (they sit above/around the dots)
       var mgx = names ? 40 : 22, mgy = names ? 34 : 20;
       state.mapBounds = { x:mnx-mgx, y:mny-mgy, w:(mxx-mnx)+2*mgx, h:(mxy-mny)+2*mgy };
-      if(state.mapFit) state.mapVB = state.mapBounds;
     }
     // remember dot centres/radii so zoom can snap the viewBox to whole circles
     state.mapPool = pool.map(function(m){ return { x:m.x, y:m.y, R:m.R }; });
+    if(pool.length){
+      if(state.mapFit) state.mapVB = state.mapBounds;
+      else state.mapVB = constrainMapVB(state.mapVB);
+    }
     // label font in world units scales with the current view so on-screen size stays ~constant
     var vbNow = state.mapVB;
     var labelFS = Math.max(2.6, Math.min(18, vbNow.w * 0.011)) * (state.mapNameScale||1);
@@ -2091,6 +2120,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(panned) mapPanned = true;
     var svg = document.getElementById('worldmap'); if(svg) svg.style.cursor = 'grab';
     mapDrag = null;
+    if(panned){ state.mapVB=constrainMapVB(state.mapVB); applyMapVB(); }
     // re-run label de-collision for the new view when names are shown
     if(panned && state.showNames) render();
   });
@@ -2105,7 +2135,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var k = e.deltaY < 0 ? 1/1.15 : 1.15;
     var nw = Math.max(120, Math.min(2200, vb.w*k));
     var nh = nw * (vb.h/vb.w);
-    state.mapVB = clampVB(snapWholeCircles({ x: px - fx*nw, y: py - fy*nh, w: nw, h: nh }));
+    state.mapVB = constrainMapVB({ x: px - fx*nw, y: py - fy*nh, w: nw, h: nh });
     // recompute label layout for the new zoom when names are shown (discrete wheel
     // steps, so a full re-render is fine); otherwise just move the viewBox.
     if(state.showNames){ if(!wheelRAF) wheelRAF = requestAnimationFrame(function(){ wheelRAF=0; render(); }); }
