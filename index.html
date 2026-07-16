@@ -1729,17 +1729,25 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function baseDotRadius(s){ return 3.2 + Math.log(Math.max(1,+s.pax||0)) * 0.72; }
 
   // Spread overlapping map dots apart (collision resolution) with a spring back
-  // to a compressed geographic home. Regional order remains geographic, while
-  // dense areas settle into the near-touching marble packing used by the map.
+  // to a size-aware geographic home. Small dots return to their true projected
+  // coordinates; only unavoidable collisions receive the minimum displacement.
+  // As the dots grow, their homes smoothly tighten into the near-touching marble
+  // packing used by the enlarged map, without changing geographic ordering.
   function spreadDots(items, box){
     var N=items.length, pad=MAP_DOT_GAP, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
+    // The slider minimum is the geographic state. Between 40% and 100%, blend
+    // continuously toward the compact state; 100% and larger retain full marble
+    // packing. This makes a large -> small round trip deterministic and prevents
+    // dots from remaining stranded at their former packed coordinates.
+    var dotSize=Math.max(.4,Math.min(2.6,+state.dotScale||1));
+    var packT=Math.max(0,Math.min(1,(dotSize-.4)/.6));packT=packT*packT*(3-2*packT);
     // Compress each of the four macro regions around its own geographic centre.
     // A uniform factor preserves all east/west and north/south bearings; the
     // collision passes below decide the minimum legal separation.
     var packs={};
     items.forEach(function(m){var id=plateMacroId(m.plateId),g=packs[id]||(packs[id]={items:[],x:0,y:0});g.items.push(m);g.x+=m.tx;g.y+=m.ty;});
     Object.keys(packs).forEach(function(id){
-      var g=packs[id],factor=id==='asia' ? 0.52 : 0.60;g.x/=g.items.length||1;g.y/=g.items.length||1;
+      var g=packs[id],compact=id==='asia' ? 0.52 : 0.60,factor=1-(1-compact)*packT;g.x/=g.items.length||1;g.y/=g.items.length||1;
       g.items.forEach(function(m){m.px=g.x+(m.tx-g.x)*factor;m.py=g.y+(m.ty-g.y)*factor;m.x=m.px;m.y=m.py;});
     });
     // phase 1: collide + weak spring to home (positions dots near geography)
