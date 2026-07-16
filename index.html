@@ -289,7 +289,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   // Zoom runs ×1.0–×MAP_MAX_ZOOM in exact 0.1 increments: every zoom value is
   // quantized to one decimal, so the displayed ×N.N is always the true factor.
-  var MAP_MAX_ZOOM = 7;
+  var MAP_MAX_ZOOM = 10;
   function quantZoom(z){ return Math.max(1, Math.min(MAP_MAX_ZOOM, Math.round(z*10)/10)); }
   function zoomMap(dz){
     var old = state.mapZoom||1;
@@ -1660,10 +1660,16 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(animate&&Math.abs(sc-psc)>.0005&&tr.keyTimes.length===2) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".42 0 .58 1"/>';
     return {open:'<g transform="translate('+dx+' '+dy+')">'+moveAnim+'<g transform="translate('+o.cx.toFixed(2)+' '+o.cy.toFixed(2)+')"><g transform="scale('+sc+')">'+scaleAnim+'<g transform="translate('+(-o.cx).toFixed(2)+' '+(-o.cy).toFixed(2)+')">',close:'</g></g></g></g>'};
   }
+  // The frame follows the content's own aspect ratio, so a lone plate group
+  // (e.g. one filtered region) fills the pane instead of floating inside
+  // fixed-ratio padding. The ratio is clamped: never flatter than the full
+  // world map, never taller than MAP_MIN_RATIO, and plates are never distorted
+  // — only the pane's height adapts.
+  var MAP_MIN_RATIO=1.6;
   function frameMapBounds(b){
-    var want=BASE_VB.w/BASE_VB.h, have=b.w/b.h;
-    if(have>want){ var nh=b.w/want, cy=b.y+b.h/2; b={x:b.x,y:cy-nh/2,w:b.w,h:nh}; }
-    else { var nw=b.h*want, cx=b.x+b.w/2; b={x:cx-nw/2,y:b.y,w:nw,h:b.h}; }
+    var maxR=BASE_VB.w/BASE_VB.h, have=b.w/b.h;
+    if(have>maxR){ var nh=b.w/maxR, cy=b.y+b.h/2; return {x:b.x,y:cy-nh/2,w:b.w,h:nh}; }
+    if(have<MAP_MIN_RATIO){ var nw=b.h*MAP_MIN_RATIO, cx=b.x+b.w/2; return {x:cx-nw/2,y:b.y,w:nw,h:b.h}; }
     return b;
   }
   function plateContentFrame(pool,nodes,offsets,names){
@@ -1677,8 +1683,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var o=offsets[n.id]||{dx:0,dy:0,scale:1,cx:n.cx,cy:n.cy},s=o.scale||1;
       (n.pieces||[]).forEach(function(piece){var b=piece.box,x0=o.cx+o.dx+(b.x0-o.cx)*s,x1=o.cx+o.dx+(b.x1-o.cx)*s,y0=o.cy+o.dy+(b.y0-o.cy)*s,y1=o.cy+o.dy+(b.y1-o.cy)*s;mnx=Math.min(mnx,x0);mxx=Math.max(mxx,x1);mny=Math.min(mny,y0);mxy=Math.max(mxy,y1);});
     });
-    var mgx=names?42:18,mgy=names?34:16;
-    return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:(mxx-mnx)+2*mgx,h:(mxy-mny)+2*mgy});
+    // Margins scale with the framed content (capped at the full-world values),
+    // so a small filtered region is wrapped tightly and fills the pane.
+    var cw=mxx-mnx,ch=mxy-mny;
+    var mgx=Math.min(names?42:18,Math.max(4,cw*(names?.07:.035)));
+    var mgy=Math.min(names?34:16,Math.max(4,ch*(names?.07:.035)));
+    return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:cw+2*mgx,h:ch+2*mgy});
   }
   function unionMapFrames(a,b){
     var x0=Math.min(a.x,b.x),y0=Math.min(a.y,b.y),x1=Math.max(a.x+a.w,b.x+b.w),y1=Math.max(a.y+a.h,b.y+b.h);
@@ -2112,7 +2122,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
       +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.1" title="每次放大 0.1（最大 ×7.0）：依場站區域移動並等比例放大板塊，未移動板塊灰階並淡出" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="0.1" title="每次放大 0.1（最大 ×10.0）：依場站區域移動並等比例放大板塊，未移動板塊灰階並淡出" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
       +     '<button data-action="zoomMap" data-k="-0.1" title="每次縮小 0.1：減少板塊位移，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
