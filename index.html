@@ -250,7 +250,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function setDotColor(d){ state.dotColor = d; render(); }
   function setKpiRing(on){ state.showKpiRing = on; render(); }
   function setShowNames(on){ state.showNames = on; render(); }
-  function setMapNameScale(v){ state.mapNameScale = Math.max(0.6, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
+  function setMapNameScale(v){ state.mapNameScale = Math.max(0.05, Math.min(2.4, v||1)); if(!state.showNames) state.showNames = true; render(); }
   function setMapLegendFont(v){ state.mapLegendFont = Math.max(8, Math.min(20, Math.round(v||11))); render(); }
   function setDotScale(v){ state.dotScale = v; render(); }
   function toggleComboMenu(){ state.comboOpen = !state.comboOpen; render(); }
@@ -289,7 +289,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   // Zoom runs ×1.0–×MAP_MAX_ZOOM in exact 0.1 increments: every zoom value is
   // quantized to one decimal, so the displayed ×N.N is always the true factor.
-  var MAP_MAX_ZOOM = 5;
+  var MAP_MAX_ZOOM = 7;
   function quantZoom(z){ return Math.max(1, Math.min(MAP_MAX_ZOOM, Math.round(z*10)/10)); }
   function zoomMap(dz){
     var old = state.mapZoom||1;
@@ -1877,11 +1877,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var land=n.pieces.map(function(piece){return'<path d="'+piece.d+'" fill="'+continentFill(piece.continent,visible)+'" stroke="'+stroke+'" stroke-width="'+(lifted?'1.05':'0.6')+'"/>';}).join('');
       plateLand+=motion.open+'<g data-plate-group="'+n.id+'" data-plate-label="'+esc(n.label)+'"'+(lifted&&land?' filter="url(#plateLift)"':'')+'>'+land+'</g>'+motion.close;
     });
-    // As soon as zooming begins, the unmoved background plates desaturate to
-    // grayscale (completing by mid-zoom) while they also fade out over the full
-    // zoom range. Both channels animate with the plate motion.
+    // From the very first zoom step (×1.1) the unmoved background plates are
+    // already fully grayscale; they then fade out progressively over the zoom
+    // range. Both channels animate with the plate motion.
     var zoomRaw=Math.max(0,Math.min(1,((state.mapZoom||1)-1)/(MAP_MAX_ZOOM-1))),fadeT=zoomRaw*zoomRaw*(3-2*zoomRaw);
-    var desatT=Math.min(1,zoomRaw/.5);
+    var desatT=(state.mapZoom||1)>1.001?1:0;
     var baseOpacity=pool.length?1-.88*fadeT:1,oldBase=state.mapBaseOpacity==null?1:state.mapBaseOpacity,baseFade='';
     var baseSat=pool.length?1-desatT:1,oldSat=state.mapBaseSat==null?1:state.mapBaseSat,satFade='';
     if(animate&&Math.abs(baseOpacity-oldBase)>.005) baseFade='<animate attributeName="opacity" from="'+oldBase.toFixed(3)+'" to="'+baseOpacity.toFixed(3)+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
@@ -2112,17 +2112,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
       +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.1" title="每次放大 0.1（最大 ×5.0）：依場站區域移動並等比例放大板塊，未移動板塊灰階並淡出" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="0.1" title="每次放大 0.1（最大 ×7.0）：依場站區域移動並等比例放大板塊，未移動板塊灰階並淡出" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
       +     '<button data-action="zoomMap" data-k="-0.1" title="每次縮小 0.1：減少板塊位移，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:6px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">圓圈大小</span>'
-      +     '<input type="range" min="0.4" max="2.6" step="0.1" value="'+state.dotScale+'" data-dotsize style="width:78px;accent-color:#00853C;cursor:pointer" />'
+      +     '<input type="range" min="0.05" max="2.6" step="0.05" value="'+state.dotScale+'" data-dotsize style="width:78px;accent-color:#00853C;cursor:pointer" />'
       +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+Math.round(state.dotScale*100)+'%</span>'
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:6px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">場站名稱字級</span>'
-      +     '<input type="range" min="0.6" max="2.4" step="0.1" value="'+state.mapNameScale+'" data-mapnamesize style="width:78px;accent-color:#00853C;cursor:pointer" />'
+      +     '<input type="range" min="0.05" max="2.4" step="0.05" value="'+state.mapNameScale+'" data-mapnamesize style="width:78px;accent-color:#00853C;cursor:pointer" />'
       +     '<span style="font-size:11px;color:#8A938F;min-width:30px">'+Math.round(state.mapNameScale*100)+'%</span>'
       +   '</div>'
       +   '<button data-action="resetMapDefaults" title="將地圖縮放、圓圈大小與場站名稱字級恢復為預設" style="border:1px solid #DFE3E4;background:#fff;color:#00853C;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">恢復預設</button>'
