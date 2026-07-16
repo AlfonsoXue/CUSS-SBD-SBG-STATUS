@@ -15,7 +15,7 @@
   ::-webkit-scrollbar-track{background:transparent}
   @keyframes sheetIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes scrimIn{from{opacity:0}to{opacity:1}}
-  /* whole-map fade complements the per-white-line plate translation animation */
+  /* whole-map fade complements the per-white-line plate move/scale animation */
   @keyframes mapUnfold{from{opacity:.62}to{opacity:1}}
   .map-unfold{animation:mapUnfold .45s cubic-bezier(.22,.61,.36,1);transform-origin:50% 50%}
   input:focus,select:focus,textarea:focus{outline:2px solid #00853C;outline-offset:1px}
@@ -1286,7 +1286,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     {id:'usa',label:'美國',codes:['ORD','DFW','IAH','LAX','JFK','SEA','SFO','IAD']},
     {id:'western_europe',label:'西歐',codes:['LHR','AMS','CDG','MUC']},
     {id:'southern_europe',label:'南歐',codes:['MXP','VIE']},
-    {id:'south_asia',label:'南亞',codes:['DEL']},
+    // Keep India active even before DEL is present in the current station rows;
+    // it is an explicit movement plate requested for the regional zoom view.
+    {id:'south_asia',label:'南亞',codes:['DEL'],alwaysActive:true},
     {id:'southeast_asia',label:'東南亞',codes:['DPS','CGK','KTI','KUL','CEB','CRK','MNL','SIN','BKK','CNX','DAD','HAN','SGN']},
     {id:'china',label:'中國大陸',codes:['PEK','CAN','TFU','HGH','PVG','SHA','SZX','XMN','HKG','MFM']},
     {id:'taiwan',label:'台灣',codes:['KHH','TPE','TSA']},
@@ -1333,7 +1335,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // Compact long inter-region gaps, then resolve only actual station-circle
   // collisions between plates. A global geographic de-collision supplies a clean
   // starting frame; plates repel only when later compression would overlap them.
-  // Every station on a plate shares one translation, preserving its local map.
+  // Every station on a plate shares one uniform scale and translation, keeping
+  // local bearings and proportions intact.
   function layoutStationPlates(nodes,zoom){
     var raw=Math.max(0,Math.min(1,((zoom||1)-1)/3));
     var t=raw*raw*(3-2*raw),out={}; // smoothstep: no abrupt first zoom step
@@ -1342,7 +1345,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     nodes.forEach(function(n){var w=n.items.length;gx+=n.cx*w;gy+=n.cy*w;weight+=w;});
     gx/=weight||1; gy/=weight||1;
     nodes.forEach(function(n){
-      n.tx=gx+(n.cx-gx)*(1-.22*t); n.ty=gy+(n.cy-gy)*(1-.14*t);
+      // Enlarge every active plate around its own geographic anchor while the
+      // regional gaps compact. The stronger horizontal compaction matches the
+      // wide map aspect and lets the enlarged plates fill the viewBox.
+      n.scale=1+.32*t;
+      n.tx=gx+(n.cx-gx)*(1-.36*t); n.ty=gy+(n.cy-gy)*(1-.28*t);
       n.fx=n.tx; n.fy=n.ty;
     });
     if(t>0){
@@ -1354,13 +1361,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           var a=nodes[i],b=nodes[j];
           for(var ai=0;ai<a.items.length;ai++)for(var bi=0;bi<b.items.length;bi++){
             var ma=a.items[ai],mb=b.items[bi];
-            var ax=ma.x+a.fx-a.cx,ay=ma.y+a.fy-a.cy;
-            var bx=mb.x+b.fx-b.cx,by=mb.y+b.fy-b.cy;
+            var ax=a.fx+(ma.x-a.cx)*a.scale,ay=a.fy+(ma.y-a.cy)*a.scale;
+            var bx=b.fx+(mb.x-b.cx)*b.scale,by=b.fy+(mb.y-b.cy)*b.scale;
             var dx=ax-bx,dy=ay-by,d=Math.sqrt(dx*dx+dy*dy);
-            var min=ma.R+mb.R+1.4;
+            var min=ma.R*a.scale+mb.R*b.scale+2.4;
             if(d<min){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
-              var push=(min-d)*.26,ux=dx/d,uy=dy/d;
+              var hx=ma.x-mb.x,hy=ma.y-mb.y,hd=Math.sqrt(hx*hx+hy*hy),push=(min-d)*.26,ux=hd>.01?hx/hd:dx/d,uy=hd>.01?hy/hd:dy/d;
               a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;
             }
           }
@@ -1374,13 +1381,13 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           a=nodes[i];b=nodes[j];
           for(ai=0;ai<a.items.length;ai++)for(bi=0;bi<b.items.length;bi++){
             ma=a.items[ai];mb=b.items[bi];
-            ax=ma.x+a.fx-a.cx;ay=ma.y+a.fy-a.cy;
-            bx=mb.x+b.fx-b.cx;by=mb.y+b.fy-b.cy;
+            ax=a.fx+(ma.x-a.cx)*a.scale;ay=a.fy+(ma.y-a.cy)*a.scale;
+            bx=b.fx+(mb.x-b.cx)*b.scale;by=b.fy+(mb.y-b.cy)*b.scale;
             dx=ax-bx;dy=ay-by;d=Math.sqrt(dx*dx+dy*dy);
-            min=ma.R+mb.R+1.4;
+            min=ma.R*a.scale+mb.R*b.scale+2.4;
             if(d<min-.01){
               if(d<.001){dx=(ma.tx-mb.tx)||(a.cx-b.cx)||1;dy=(ma.ty-mb.ty)||(a.cy-b.cy)||0;d=Math.sqrt(dx*dx+dy*dy)||1;}
-              push=(min-d)*.5+.01;ux=dx/d;uy=dy/d;
+              hx=ma.x-mb.x;hy=ma.y-mb.y;hd=Math.sqrt(hx*hx+hy*hy);push=(min-d)*.5+.01;ux=hd>.01?hx/hd:dx/d;uy=hd>.01?hy/hd:dy/d;
               a.fx+=ux*push;a.fy+=uy*push;b.fx-=ux*push;b.fy-=uy*push;moved=true;
             }
           }
@@ -1394,7 +1401,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       if(t>.999){
         var stationBox=function(n){
           var x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,ox=n.fx-n.cx,oy=n.fy-n.cy;
-          n.items.forEach(function(m){var r=m.R+.7;x0=Math.min(x0,m.x+ox-r);x1=Math.max(x1,m.x+ox+r);y0=Math.min(y0,m.y+oy-r);y1=Math.max(y1,m.y+oy+r);});
+          n.items.forEach(function(m){var r=m.R*n.scale+1.2,x=n.fx+(m.x-n.cx)*n.scale,y=n.fy+(m.y-n.cy)*n.scale;x0=Math.min(x0,x-r);x1=Math.max(x1,x+r);y0=Math.min(y0,y-r);y1=Math.max(y1,y+r);});
           return{x0:x0,y0:y0,x1:x1,y1:y1};
         };
         for(it=0;it<160;it++){
@@ -1403,8 +1410,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
             a=nodes[i];b=nodes[j];var hit=false;
             for(ai=0;ai<a.items.length&&!hit;ai++)for(bi=0;bi<b.items.length;bi++){
               ma=a.items[ai];mb=b.items[bi];
-              ax=ma.x+a.fx-a.cx;ay=ma.y+a.fy-a.cy;bx=mb.x+b.fx-b.cx;by=mb.y+b.fy-b.cy;
-              if(Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by))<ma.R+mb.R+1.35){hit=true;break;}
+              ax=a.fx+(ma.x-a.cx)*a.scale;ay=a.fy+(ma.y-a.cy)*a.scale;bx=b.fx+(mb.x-b.cx)*b.scale;by=b.fy+(mb.y-b.cy)*b.scale;
+              if(Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by))<ma.R*a.scale+mb.R*b.scale+2.35){hit=true;break;}
             }
             if(!hit) continue;
             var ba=stationBox(a),bb=stationBox(b);
@@ -1419,16 +1426,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
         }
       }
     }
-    nodes.forEach(function(n){out[n.id]={dx:n.fx-n.cx,dy:n.fy-n.cy,cx:n.cx,cy:n.cy,fx:n.fx,fy:n.fy,count:n.items.length};});
+    nodes.forEach(function(n){out[n.id]={dx:n.fx-n.cx,dy:n.fy-n.cy,cx:n.cx,cy:n.cy,fx:n.fx,fy:n.fy,scale:n.scale,count:n.items.length};});
     return out;
   }
   function plateMotion(id,offset,previous,animate){
-    var o=offset||{dx:0,dy:0},p=(previous&&previous[id])||{dx:0,dy:0};
-    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),anim='';
+    var o=offset||{dx:0,dy:0,scale:1,cx:0,cy:0},p=(previous&&previous[id])||{dx:0,dy:0,scale:1,cx:o.cx,cy:o.cy};
+    var dx=+o.dx.toFixed(2),dy=+o.dy.toFixed(2),sc=+(o.scale||1).toFixed(4),psc=+(p.scale||1).toFixed(4),moveAnim='',scaleAnim='';
     if(animate&&(Math.abs(dx-p.dx)>.05||Math.abs(dy-p.dy)>.05)){
-      anim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+      moveAnim='<animateTransform attributeName="transform" type="translate" from="'+(+p.dx.toFixed(2))+' '+(+p.dy.toFixed(2))+'" to="'+dx+' '+dy+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
     }
-    return {open:'<g transform="translate('+dx+' '+dy+')">'+anim,close:'</g>'};
+    if(animate&&Math.abs(sc-psc)>.0005) scaleAnim='<animateTransform attributeName="transform" type="scale" from="'+psc+'" to="'+sc+'" dur=".48s" fill="freeze" calcMode="spline" keySplines=".22 .61 .36 1"/>';
+    return {open:'<g transform="translate('+dx+' '+dy+')">'+moveAnim+'<g transform="translate('+o.cx.toFixed(2)+' '+o.cy.toFixed(2)+')"><g transform="scale('+sc+')">'+scaleAnim+'<g transform="translate('+(-o.cx).toFixed(2)+' '+(-o.cy).toFixed(2)+')">',close:'</g></g></g></g>'};
   }
   function frameMapBounds(b){
     var want=BASE_VB.w/BASE_VB.h, have=b.w/b.h;
@@ -1440,12 +1448,12 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     if(!pool.length) return{x:BASE_VB.x,y:BASE_VB.y,w:BASE_VB.w,h:BASE_VB.h};
     var mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
     pool.forEach(function(m){
-      var o=offsets[m.plateId]||{dx:0,dy:0},x=m.x+o.dx,y=m.y+o.dy,vr=m.R+4;
+      var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1,x=o.cx+o.dx+(m.x-o.cx)*s,y=o.cy+o.dy+(m.y-o.cy)*s,vr=m.R*s+4;
       mnx=Math.min(mnx,x-vr);mxx=Math.max(mxx,x+vr);mny=Math.min(mny,y-vr);mxy=Math.max(mxy,y+vr);
     });
     nodes.forEach(function(n){
-      var o=offsets[n.id]||{dx:0,dy:0};
-      (n.pieces||[]).forEach(function(piece){var b=piece.box;mnx=Math.min(mnx,b.x0+o.dx);mxx=Math.max(mxx,b.x1+o.dx);mny=Math.min(mny,b.y0+o.dy);mxy=Math.max(mxy,b.y1+o.dy);});
+      var o=offsets[n.id]||{dx:0,dy:0,scale:1,cx:n.cx,cy:n.cy},s=o.scale||1;
+      (n.pieces||[]).forEach(function(piece){var b=piece.box,x0=o.cx+o.dx+(b.x0-o.cx)*s,x1=o.cx+o.dx+(b.x1-o.cx)*s,y0=o.cy+o.dy+(b.y0-o.cy)*s,y1=o.cy+o.dy+(b.y1-o.cy)*s;mnx=Math.min(mnx,x0);mxx=Math.max(mxx,x1);mny=Math.min(mny,y0);mxy=Math.max(mxy,y1);});
     });
     var mgx=names?42:18,mgy=names?34:16;
     return frameMapBounds({x:mnx-mgx,y:mny-mgy,w:(mxx-mnx)+2*mgx,h:(mxy-mny)+2*mgy});
@@ -1506,7 +1514,9 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   // to each dot's true geographic point — dense regions fan out, isolated dots
   // stay put, and nothing overlaps.
   function spreadDots(items, box){
-    var N=items.length, pad=1.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
+    // Two map units of clearance leave enough room for simultaneous move/scale
+    // interpolation, not only the settled endpoints.
+    var N=items.length, pad=2.0, i, j, k, a, b, dx, dy, d, min, push, ux, uy,hx,hy,hd;
     // phase 1: collide + weak spring to home (positions dots near geography)
     for(var it=0; it<110; it++){
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
@@ -1603,26 +1613,35 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       return {s:s,plateId:group.id,plateLabel:group.label,group:group,geoPiece:piece,tx:p.x,ty:p.y,x:p.x,y:p.y,R:baseDotRadius(s)*sc};
     });
     // Resolve circles once in true global geography. Subsequent zoom movement is
-    // rigid per region group, so their settled relative positions stay unchanged.
+    // uniform per region group, so their settled relative bearings stay intact.
     spreadDots(pool);
     var grouped={};
     pool.forEach(function(m){if(!grouped[m.plateId]) grouped[m.plateId]={id:m.plateId,label:m.plateLabel,group:m.group,items:[]};grouped[m.plateId].items.push(m);});
+    // India/South Asia remains an active moving plate even when the current
+    // station rows do not yet contain DEL. Its canonical GEO point supplies the
+    // anchor, so the original India path participates in motion and scaling.
+    PLATE_GROUPS.forEach(function(g){if(pool.length&&g.alwaysActive&&!grouped[g.id]) grouped[g.id]={id:g.id,label:g.label,group:g,items:[]};});
 
     var nodes=Object.keys(grouped).map(function(id){
       var g=grouped[id],x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,maxR=0;
-      g.items.forEach(function(m){x0=Math.min(x0,m.x);x1=Math.max(x1,m.x);y0=Math.min(y0,m.y);y1=Math.max(y1,m.y);maxR=Math.max(maxR,m.R);});
       var land=(groupPieces[id]||[]).slice();
+      g.items.forEach(function(m){x0=Math.min(x0,m.x);x1=Math.max(x1,m.x);y0=Math.min(y0,m.y);y1=Math.max(y1,m.y);maxR=Math.max(maxR,m.R);});
       if(!land.length){var seen={};g.items.forEach(function(m){if(m.geoPiece&&!seen[m.geoPiece.id]){seen[m.geoPiece.id]=true;land.push(m.geoPiece);}});}
+      if(!g.items.length){
+        var anchors=(g.group.codes||[]).map(function(code){var q=GEO[code];return q?mproj(q.lat,q.lon):null;}).filter(Boolean);
+        if(anchors.length){var ax=0,ay=0;anchors.forEach(function(q){ax+=q.x;ay+=q.y;});x0=x1=ax/anchors.length;y0=y1=ay/anchors.length;}
+        else if(land.length){var lx0=Infinity,ly0=Infinity,lx1=-Infinity,ly1=-Infinity;land.forEach(function(p){lx0=Math.min(lx0,p.box.x0);ly0=Math.min(ly0,p.box.y0);lx1=Math.max(lx1,p.box.x1);ly1=Math.max(ly1,p.box.y1);});x0=x1=(lx0+lx1)/2;y0=y1=(ly0+ly1)/2;}
+      }
       return {id:id,label:g.label,pieces:land,items:g.items,x0:x0,y0:y0,x1:x1,y1:y1,maxR:maxR,cx:(x0+x1)/2,cy:(y0+y1)/2};
     });
     // A white-line path has one owner even if future custom aliases collide.
     var pieceOwner={};
     nodes.forEach(function(n){n.pieces=n.pieces.filter(function(piece){if(pieceOwner[piece.id]) return false;pieceOwner[piece.id]=n.id;return true;});});
     var previous=state.mapPlateOffsets||{},offsets=layoutStationPlates(nodes,state.mapZoom||1),animate=!!state.mapAnim;
-    pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0};m.dx=o.dx;m.dy=o.dy;m.fx=m.x+o.dx;m.fy=m.y+o.dy;});
+    pool.forEach(function(m){var o=offsets[m.plateId]||{dx:0,dy:0,scale:1,cx:m.x,cy:m.y},s=o.scale||1;m.dx=o.dx;m.dy=o.dy;m.plateScale=s;m.plateCx=o.cx;m.plateCy=o.cy;m.fx=o.cx+o.dx+(m.x-o.cx)*s;m.fy=o.cy+o.dy+(m.y-o.cy)*s;});
 
     // Remove active region pieces from the background, then draw their exact
-    // original paths as one rigid group. All non-moving land fades with zoom.
+    // original paths as one uniformly transformed group. Background land fades.
     var occupied={},baseLand='',plateLand='';
     nodes.forEach(function(n){n.pieces.forEach(function(piece){occupied[piece.id]=true;});});
     pieces.forEach(function(piece){
@@ -1647,11 +1666,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     var startFrame=animate?plateContentFrame(pool,nodes,previous,names):finalFrame;
     var displayFrame=animate?unionMapFrames(startFrame,finalFrame):finalFrame;
     state.mapBounds=finalFrame;
-    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R,plateId:m.plateId,plateLabel:m.plateLabel,region:m.s.region,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
+    state.mapPool=pool.map(function(m){return{x:m.fx,y:m.fy,R:m.R*m.plateScale,plateId:m.plateId,plateLabel:m.plateLabel,plateScale:m.plateScale,region:m.s.region,code:m.s.code,localX:m.x,localY:m.y,geoX:m.tx,geoY:m.ty};});
     state.mapVB={x:state.mapBounds.x,y:state.mapBounds.y,w:state.mapBounds.w,h:state.mapBounds.h};
     state.mapFit=true;
     state.mapAnimationFrame={start:startFrame,display:displayFrame,final:finalFrame};
-    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0};return{id:n.id,label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
+    state.mapPlateLayout={zoom:state.mapZoom||1,baseOpacity:baseOpacity,plates:nodes.map(function(n){var o=offsets[n.id]||{dx:0,dy:0,scale:1};return{id:n.id,label:n.label,pieceIds:n.pieces.map(function(p){return p.id;}),dx:o.dx,dy:o.dy,scale:o.scale||1,cx:n.cx,cy:n.cy,fx:n.cx+o.dx,fy:n.cy+o.dy,codes:n.items.map(function(m){return m.s.code;})};})};
 
     var vbNow=state.mapVB,labelFS=Math.max(2.6,Math.min(18,vbNow.w*0.011))*(state.mapNameScale||1);
     var defs='<filter id="plateLift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#10251B" flood-opacity=".34"/></filter>';
@@ -1669,16 +1688,17 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var kpiRing=(s.kpi&&state.showKpiRing)?'<circle cx="'+cx+'" cy="'+cy+'" r="'+(R+2).toFixed(1)+'" fill="none" stroke="#fff" stroke-width="1.3"/>':'';
       addPart(dotBy,m.plateId,'<g data-tip="'+s.id+'" data-action="select" data-id="'+s.id+'" style="cursor:pointer">'+selRing+body+kpiRing+'</g>');
       if(names){
-        var hy=twoTone?(m.fy-R+R*cussFrac):m.fy;
-        labelItems.push({s:s,plateId:m.plateId,dx:m.dx,dy:m.dy,cx:m.fx,cy:m.fy,fs:labelFS,hx:m.fx,hy:hy,lx:m.fx,ly:hy,w:s.code.length*labelFS*.62,h:labelFS});
+        var visualR=R*m.plateScale,hy=twoTone?(m.fy-visualR+visualR*cussFrac):m.fy;
+        labelItems.push({s:s,plateId:m.plateId,dx:m.dx,dy:m.dy,scale:m.plateScale,pcx:m.plateCx,pcy:m.plateCy,cx:m.fx,cy:m.fy,fs:labelFS,hx:m.fx,hy:hy,lx:m.fx,ly:hy,w:s.code.length*labelFS*.62,h:labelFS});
       }
     });
     if(names&&labelItems.length){
       layoutLabels(labelItems);
       labelItems.forEach(function(m){
-        var cx=m.cx-m.dx,cy=m.cy-m.dy,lx=m.lx-m.dx,ly=m.ly-m.dy,moved=Math.abs(m.lx-m.hx)+Math.abs(m.ly-m.hy)>1.6;
-        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="0.55" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="0.9" fill="'+leadStroke+'"/>');
-        addPart(labelBy,m.plateId,'<text x="'+lx.toFixed(1)+'" y="'+(ly+m.fs*.34).toFixed(1)+'" text-anchor="middle" font-size="'+m.fs.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(m.fs*.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>');
+        var s=m.scale||1,invX=function(x){return m.pcx+(x-m.pcx-m.dx)/s;},invY=function(y){return m.pcy+(y-m.pcy-m.dy)/s;};
+        var cx=invX(m.cx),cy=invY(m.cy),lx=invX(m.lx),ly=invY(m.ly),localFS=m.fs/s,moved=Math.abs(m.lx-m.hx)+Math.abs(m.ly-m.hy)>1.6;
+        if(moved) addPart(leaderBy,m.plateId,'<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+lx.toFixed(1)+'" y2="'+ly.toFixed(1)+'" stroke="'+leadStroke+'" stroke-width="'+(.55/s).toFixed(2)+'" stroke-opacity="0.85"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="'+(.9/s).toFixed(2)+'" fill="'+leadStroke+'"/>');
+        addPart(labelBy,m.plateId,'<text x="'+lx.toFixed(1)+'" y="'+(ly+localFS*.34).toFixed(1)+'" text-anchor="middle" font-size="'+localFS.toFixed(1)+'" font-weight="800" font-family="system-ui,sans-serif" fill="#fff" stroke="rgba(18,26,22,.62)" stroke-width="'+(localFS*.2).toFixed(2)+'" paint-order="stroke" style="pointer-events:none">'+esc(m.s.code)+'</text>');
       });
     }
     var overlays='';
@@ -1855,8 +1875,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function mapMoveControls(){
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;flex:none">'
       +   '<div style="display:flex;align-items:center;gap:5px;flex:none"><span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">板塊縮放</span>'
-      +     '<button data-action="zoomMap" data-k="0.8" title="依場站區域沿原始白線移動板塊，並淡出其餘底圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
-      +     '<button data-action="zoomMap" data-k="1.25" title="減少板塊位移與淡出，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
+      +     '<button data-action="zoomMap" data-k="0.8" title="依場站區域移動並等比例放大板塊，淡出其餘底圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;line-height:1">＋</button>'
+      +     '<button data-action="zoomMap" data-k="1.25" title="縮小並減少板塊位移，回到完整原始地圖" style="width:26px;height:26px;border:1px solid #DFE3E4;background:#fff;color:#141819;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;line-height:1">－</button>'
       +     '<span style="font-size:11px;color:#8A938F;min-width:34px">×'+(state.mapZoom||1).toFixed(1)+'</span>'
       +     '<button data-action="resetMapView" style="border:1px solid #DFE3E4;background:#fff;color:#515A5D;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">重置視圖</button>'
       +   '</div>'
@@ -2358,8 +2378,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   });
 
   // ---- map zoom (wheel) ----
-  // Wheel zoom increases/decreases intact plate translation; it never deforms a
-  // country path or crops away a station from the complete geographic frame.
+  // Wheel zoom increases/decreases each intact plate's uniform scale and move;
+  // it never non-uniformly deforms a path or crops a station from the frame.
   document.addEventListener('wheel', function(e){
     var svg = e.target.closest ? e.target.closest('#worldmap') : null;
     if(!svg) return;
