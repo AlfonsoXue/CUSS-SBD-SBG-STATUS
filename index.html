@@ -842,20 +842,44 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   function automationScore(s){
     return STATUS_WEIGHT[s.cuss]*STAGE_WEIGHT.cuss + STATUS_WEIGHT[s.sbd]*STAGE_WEIGHT.sbd + STATUS_WEIGHT[s.sbg]*STAGE_WEIGHT.sbg;
   }
-  // log-scale volume normalized to the pax range of a given station set (so the
-  // matrix axis rescales to whatever is currently visible/filtered).
-  function paxRange(list){
-    var lo = Infinity, hi = -Infinity;
-    (list||[]).forEach(function(s){ var v = Math.log(Math.max(1, +s.pax||0)); if(v<lo) lo=v; if(v>hi) hi=v; });
-    if(!isFinite(lo)){ lo = Math.log(500); hi = Math.log(250000); }
-    return { lo:lo, hi:hi };
+  // ---- matrix X-axis volume position (outlier-robust log scale) ----
+  // A single mega-hub (TPE ≈ 231k pax, ~12× the next station) stretches a plain
+  // log axis so far that every other station collapses into the left third while
+  // a wide empty band opens up in front of the outlier. To keep dots ordered by
+  // true scale yet spread evenly, each station's X position blends two views of
+  // the currently-visible set:
+  //   • log position — ln(pax) normalized to the set's [min,max]; preserves the
+  //     real proportional distance between stations.
+  //   • rank position — the station's quantile within the set; inherently even
+  //     and immune to outliers (TPE is simply "the largest", not "12× the axis").
+  // The blend stays strictly monotonic (larger pax ⇒ further right, always), so
+  // ordering is correct, while the rank term fills the gap an outlier would leave
+  // and rebalances the four quadrants. Recomputed per set, so the axis still
+  // rescales to whatever is currently visible/filtered.
+  function paxScale(list){
+    var sorted = (list||[]).map(function(s){ return Math.log(Math.max(1, +s.pax||0)); })
+                           .sort(function(a,b){ return a-b; });
+    var lo, hi;
+    if(sorted.length){ lo = sorted[0]; hi = sorted[sorted.length-1]; }
+    else { lo = Math.log(500); hi = Math.log(250000); }
+    return { lo:lo, hi:hi, sorted:sorted };
   }
-  function volumeScoreIn(s, range){
+  // weight of the log term in the blend (0 = pure rank/even, 1 = pure log);
+  // 0.4 keeps a clear sense of proportional scale while spreading dots evenly.
+  var VOL_LOG_WEIGHT = 0.4;
+  function volumeScoreIn(s, scale){
     var v = Math.log(Math.max(1, +s.pax||0));
-    if(range.hi - range.lo < 1e-9) return 0.5;
-    return Math.max(0, Math.min(1, (v - range.lo) / (range.hi - range.lo)));
+    var lg = (scale.hi - scale.lo < 1e-9) ? 0.5 : (v - scale.lo) / (scale.hi - scale.lo);
+    var arr = scale.sorted || [], n = arr.length, rk = 0.5;
+    if(n > 1){
+      var less = 0, equal = 0;
+      for(var i=0;i<n;i++){ if(arr[i] < v) less++; else if(arr[i] === v) equal++; }
+      // midrank so tied volumes share a quantile; normalized to [0,1]
+      rk = (less + (equal > 1 ? (equal - 1) / 2 : 0)) / (n - 1);
+    }
+    return Math.max(0, Math.min(1, VOL_LOG_WEIGHT * lg + (1 - VOL_LOG_WEIGHT) * rk));
   }
-  function volumeScore(s){ return volumeScoreIn(s, paxRange(liveStations())); }
+  function volumeScore(s){ return volumeScoreIn(s, paxScale(liveStations())); }
   var AUTO_THRESHOLD = 0.5, VOL_THRESHOLD = 0.5;
   // quadrants keyed by (hiVol, hiAuto)
   var QUAD = {
@@ -2062,10 +2086,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
   }
   function matrixHTML(){
     var visible = filteredStations();
-    var range = paxRange(visible);   // rescale X axis to the currently-visible stations
+    var scale = paxScale(visible);   // rescale X axis to the currently-visible stations
     // snap dots to a tidy grid by their (volume, automation) position so they
     // never overlap — position stays meaningful, arrangement stays neat
-    var gitems = visible.map(function(s){ return { s:s, fx:volumeScoreIn(s,range), fy:automationScore(s) }; });
+    var gitems = visible.map(function(s){ return { s:s, fx:volumeScoreIn(s,scale), fy:automationScore(s) }; });
     gridSnapMatrix(gitems);
     var pts = gitems.map(function(m){ return { left:m.left, top:m.top }; });
     var dots = gitems.map(function(m){
