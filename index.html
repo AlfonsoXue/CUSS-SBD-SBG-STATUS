@@ -168,25 +168,61 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return o;
   }
 
+  // ---- stale-cache detection ----
+  // localStorage persists across file updates, so an updated index.html (or a
+  // different 另存新檔 snapshot sharing the snaplocal key) would keep showing the
+  // OLD saved data instead of its own newer built-in data. Fingerprint the file's
+  // built-in data; when the stored fingerprint differs, the file changed since
+  // those edits were saved — adopt the file's fresh data (the superseded local
+  // copy is kept under STORE_KEY+'_prev') and note it in the update log.
+  var SEED_SIG_STORE = STORE_KEY+'_seedsig';
+  var FILE_SIG = '';                  // fingerprint of this file's built-in data
+  var seedWasRefreshed = false;       // logged once the changelog exists
+  function dataSig(list){
+    var s = JSON.stringify((list||[]).map(function(o){
+      var c = {}; for(var k in o){ if(k!=='id') c[k]=o[k]; } return c;
+    }));
+    var h = 5381;
+    for(var i=0;i<s.length;i++){ h = ((h<<5)+h+s.charCodeAt(i))|0; }
+    return 'v'+(h>>>0).toString(36)+'-'+s.length;
+  }
+  function builtinStations(){
+    if(SNAPSHOT){   // a 另存新檔 file — its embedded data IS its built-in data
+      nid = Math.max.apply(null, SNAPSHOT.map(function(s){ return s.id||0; })) + 1;
+      return SNAPSHOT.map(normalize);
+    }
+    return seed().map(normalize);   // normalized like every other path (adds hidden:false etc.)
+  }
   function load(){
+    var fresh = builtinStations();
+    FILE_SIG = dataSig(fresh);
     try{
       var raw = localStorage.getItem(STORE_KEY);
       if(raw){
         var arr = JSON.parse(raw);
         if(Array.isArray(arr) && arr.length){
+          var savedSig = localStorage.getItem(SEED_SIG_STORE);
+          if(savedSig && savedSig!==FILE_SIG){
+            // the file's built-in data changed after these edits were saved →
+            // show the new file data; keep the superseded copy as a backup
+            try{ localStorage.setItem(STORE_KEY+'_prev', raw); }catch(e1){}
+            try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(LU_STORE); localStorage.setItem(SEED_SIG_STORE, FILE_SIG); }catch(e2){}
+            seedWasRefreshed = true;
+            return fresh;
+          }
+          // pre-upgrade saves carry no fingerprint — keep them and stamp it now
+          if(!savedSig){ try{ localStorage.setItem(SEED_SIG_STORE, FILE_SIG); }catch(e3){} }
           nid = Math.max.apply(null, arr.map(function(s){ return s.id||0; })) + 1;
           return arr.map(normalize);
         }
       }
-      if(SNAPSHOT){   // first open of a 另存新檔 file — seed from its embedded data
-        nid = Math.max.apply(null, SNAPSHOT.map(function(s){ return s.id||0; })) + 1;
-        return SNAPSHOT.map(normalize);
-      }
+      localStorage.setItem(SEED_SIG_STORE, FILE_SIG);
     }catch(e){}
-    return seed();
+    // no usable save (or storage unavailable) → the file's own built-in data
+    return fresh;
   }
   var LU_STORE = STORE_KEY+'_updated';
-  function save(stations){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(stations)); var now=Date.now(); localStorage.setItem(LU_STORE, String(now)); if(typeof state!=='undefined'){ state.lastUpdated=now; state.lastUpdatedStr=null; } }catch(e){} }
+  function save(stations){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(stations)); var now=Date.now(); localStorage.setItem(LU_STORE, String(now)); if(FILE_SIG) localStorage.setItem(SEED_SIG_STORE, FILE_SIG); if(typeof state!=='undefined'){ state.lastUpdated=now; state.lastUpdatedStr=null; } }catch(e){} }
   function loadLastUpdated(){ try{ var v=+localStorage.getItem(LU_STORE); if(v) return v; }catch(e){} return null; }
   // stations shown / counted everywhere (hidden ones are fully excluded)
   function liveStations(){ return state.stations.filter(function(s){ return !s.hidden; }); }
@@ -449,7 +485,11 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     return '<!DOCTYPE html>\n<html lang="zh-Hant">\n<head>\n'+head+'\n</head>\n<body>\n'+shells+'\n'+scripts+'\n</body>\n</html>';
   }
   function currentHTMLSource(){
-    return fetch(location.href).then(function(r){ if(!r.ok) throw 0; return r.text(); }).catch(function(){
+    // file:// cannot be fetched — go straight to the reconstruction (avoids a
+    // guaranteed-to-fail request and its console error)
+    if(location.protocol==='file:') return Promise.resolve(buildCleanSource());
+    // cache:'reload' — a snapshot must embed the CURRENT source, never an HTTP-cached copy
+    return fetch(location.href, {cache:'reload'}).then(function(r){ if(!r.ok) throw 0; return r.text(); }).catch(function(){
       return buildCleanSource();
     });
   }
@@ -477,7 +517,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     download('自助化設備狀態.json', new Blob([JSON.stringify(out, null, 2)], {type:'application/json'}));
   }
   function exportCSV(){
-    var head = ['場站','區域','建置時程','CUSS','CUSS系統商','CUSS時程','行李條列印','SBD','SBD系統商','SBD時程','SBG','SBG系統商','KPI','航班量','旅客量','自動化完備度','定位象限','各站進度','排程備註'];
+    var head = ['場站','區域','建置時程','CUSS','CUSS系統商','CUSS時程','行李條列印','SBD','SBD系統商','SBD時程','SBG','SBG系統商','KPI','航班量','旅客量','自動化完備度','定位象限','各站進度','排程備註','隱藏'];
     var L = STATUS;
     var esc = function(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; };
     var rows = state.stations.map(function(s){
@@ -485,7 +525,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       return [s.code, s.region, s.phase, L[s.cuss].label, s.cussVendor, s.cussDate, s.bagTag?'是':'',
               L[s.sbd].label, s.sbdVendor, s.sbdDate, L[s.sbg].label, s.sbgVendor,
               s.kpi?'是':'', s.flights, s.pax, Math.round(automationScore(s)*100)+'%', q.name,
-              s.note, s.schedNote].map(esc).join(',');
+              s.note, s.schedNote, s.hidden?'是':''].map(esc).join(',');
     });
     var csv = '﻿' + [head.map(esc).join(','), rows.join('\r\n')].join('\r\n');
     download('自助化設備狀態.csv', new Blob([csv], {type:'text/csv;charset=utf-8'}));
@@ -592,6 +632,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       var px=+String(g(r,'旅客量')).replace(/[^\d.]/g,''); if(px) rec.pax=px;
       if(g(r,'各站進度')!=='') rec.note = String(g(r,'各站進度'));
       if(g(r,'排程備註')!=='') rec.schedNote = String(g(r,'排程備註'));
+      if(col['隱藏']!=null) rec.hidden = truthy(g(r,'隱藏'));
       return rec;
     }).filter(Boolean);
   }
@@ -606,7 +647,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       s.onload=function(){ res(window.XLSX); };
       s.onerror=function(){ rej(new Error('load failed')); };
       document.head.appendChild(s);
-    });
+    }).catch(function(err){ _xlsx=null; throw err; });   // failed load isn't cached — retry once back online
     return _xlsx;
   }
   function colByHeader(header, names){ for(var j=0;j<header.length;j++){ if(names.indexOf(String(header[j]).trim())>=0) return j; } return -1; }
@@ -712,7 +753,8 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       recs.forEach(function(r){
         if(idxByCode[r.code]!=null){
           var tgt=stations[idxByCode[r.code]];
-          for(var k in r){ if(k==='code') continue; var v=r[k]; if(v==null||v==='') continue; tgt[k]=v; }
+          // never adopt an external id — it could collide with another station's
+          for(var k in r){ if(k==='code'||k==='id') continue; var v=r[k]; if(v==null||v==='') continue; tgt[k]=v; }
           // imported notes are authoritative → re-derive 行李條 icon
           if(r.note!=null || r.schedNote!=null) tgt.bagTag = deriveBagTag(tgt.note, tgt.schedNote);
           var nn=normalize(tgt); nn.id=tgt.id; stations[idxByCode[r.code]]=nn; updated++;
@@ -761,7 +803,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
       s.onload = function(){ res(window.html2canvas); };
       s.onerror = function(){ rej(new Error('load failed')); };
       document.head.appendChild(s);
-    });
+    }).catch(function(err){ _h2c=null; throw err; });   // failed load isn't cached — retry once back online
     return _h2c;
   }
   function exportPNG(targetId, filename){
@@ -1851,7 +1893,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
           }
         }
       }
-      for(i=0;i<N;i++){ it=items[i]; it.lx += (it.hx-it.lx)*0.05; it.ly += (it.hy-it.ly)*0.05; }
+      for(i=0;i<N;i++){ var m=items[i]; m.lx += (m.hx-m.lx)*0.05; m.ly += (m.hy-m.ly)*0.05; }
     }
   }
 
@@ -2091,7 +2133,6 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     // never overlap — position stays meaningful, arrangement stays neat
     var gitems = visible.map(function(s){ return { s:s, fx:volumeScoreIn(s,scale), fy:automationScore(s) }; });
     gridSnapMatrix(gitems);
-    var pts = gitems.map(function(m){ return { left:m.left, top:m.top }; });
     var dots = gitems.map(function(m){
       var s = m.s;
       var r = 13.5, cf = 60;   // dot split: CUSS top 60%, SBD bottom 40%
@@ -2141,7 +2182,7 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
 
   function filterSelect(field, label, opts){
     var cur = state.filters[field];
-    var options = opts.map(function(o){ return '<option value="'+o.v+'"'+(cur===o.v?' selected':'')+'>'+esc(o.label)+'</option>'; }).join('');
+    var options = opts.map(function(o){ return '<option value="'+esc(o.v)+'"'+(cur===o.v?' selected':'')+'>'+esc(o.label)+'</option>'; }).join('');
     return '<label style="display:flex;align-items:center;gap:6px;flex:none">'
       + '<span style="font-size:11px;font-weight:700;color:#515A5D;white-space:nowrap">'+label+'</span>'
       + '<select data-filter="'+field+'" style="border:1px solid '+(cur!=='all'?'#00853C':'#DFE3E4')+';border-radius:8px;padding:6px 9px;font-size:12px;font-family:inherit;background:#fff;color:'+(cur!=='all'?'#00853C':'#141819')+';font-weight:'+(cur!=='all'?'700':'400')+';cursor:pointer">'+options+'</select>'
@@ -2666,6 +2707,10 @@ var GEO={"YYZ":{"lat":43.68,"lon":-79.63,"flights":13,"pax":3673},"YVR":{"lat":4
     state.mapFit=true;
     if(Math.abs(state.mapZoom-old)>0.0001){ state.mapAnim=true; render(); }
   }, { passive:false });
+
+  // a newer file superseded the saved local copy during load() — record it now
+  // that the changelog exists (the old copy stays under STORE_KEY+'_prev')
+  if(seedWasRefreshed) logEvent('偵測到檔案內建資料已更新，已自動載入新版資料（先前的本機編輯已備份，可經匯出 JSON 後還原）');
 
   render();
 })();
